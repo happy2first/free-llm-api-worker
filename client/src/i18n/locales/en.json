@@ -363,7 +363,6 @@
     }
   },
   "keys": {
-    "cloudflareRuntime": "Running on Cloudflare. Manage upstream credentials in Providers and downstream application keys in API Key. Workers AI uses the native binding. Deployment updates and database recovery are managed in Cloudflare.",
     "pageTitle": "Keys",
     "pageDescription": "Provider credentials and the unified API key your apps connect with.",
     "tabProviders": "Providers",

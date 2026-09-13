@@ -363,7 +363,6 @@
     }
   },
   "keys": {
-    "cloudflareRuntime": "当前运行于 Cloudflare。在“平台密钥”中管理上游凭证，在“API 密钥”中管理下游应用密钥。Workers AI 使用原生绑定接入；版本更新与数据库恢复请在 Cloudflare 管理。",
     "pageTitle": "密钥",
     "pageDescription": "各提供方的凭据，以及供您的应用程序连接的统一 API 密钥。",
     "tabProviders": "提供方",
