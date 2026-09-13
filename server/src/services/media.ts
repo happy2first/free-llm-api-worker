@@ -959,7 +959,7 @@ async function callTranscriptionProvider(
       // only the base URL and the optional key differ.
       if (!credential.baseUrl) throw new MediaError('custom transcription provider is missing base_url', 500);
       const form = new FormData();
-      form.append('file', new Blob([p.file], { type: p.mimeType || 'application/octet-stream' }), p.filename);
+      form.append('file', new Blob([new Uint8Array(p.file)], { type: p.mimeType || 'application/octet-stream' }), p.filename);
       form.append('model', m.modelId);
       if (p.language) form.append('language', p.language);
       if (p.prompt) form.append('prompt', p.prompt);
@@ -982,7 +982,7 @@ async function callTranscriptionProvider(
       // Groq's OpenAI-compatible audio endpoint takes multipart form data.
       // Never set Content-Type by hand — FormData supplies the boundary.
       const form = new FormData();
-      form.append('file', new Blob([p.file], { type: p.mimeType || 'application/octet-stream' }), p.filename);
+      form.append('file', new Blob([new Uint8Array(p.file)], { type: p.mimeType || 'application/octet-stream' }), p.filename);
       form.append('model', m.modelId);
       if (p.language) form.append('language', p.language);
       if (p.prompt) form.append('prompt', p.prompt);
@@ -1015,7 +1015,7 @@ async function callTranscriptionProvider(
         : {
             method: 'POST',
             headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${token}` },
-            body: p.file,
+            body: new Uint8Array(p.file),
           };
       const r = await mediaFetch(url, 'cloudflare', 'transcription', init);
       const j = (await r.json()) as {

@@ -24,3 +24,10 @@ update-hermes.sh
 
 # Monetization planning — private, never committed
 monetization/
+
+# Cloudflare runtime and local secrets
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+cloudflare/dist/
+cloudflare/worker-configuration.d.ts

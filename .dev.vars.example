@@ -1,0 +1,4 @@
+# Generate each independently. Never commit .dev.vars.
+# node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+ENCRYPTION_KEY=replace-with-64-hex-characters
+SETUP_CODE=replace-with-a-long-random-setup-secret

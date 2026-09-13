@@ -468,7 +468,7 @@ function App() {
                 </PageContainer>
                 <Toaster />
                 <CommandPalette />
-                <UpdateReminder />
+                {import.meta.env.VITE_RUNTIME !== 'cloudflare' && <UpdateReminder />}
               </AppShell>
             </AuthGate>
           </BrowserRouter>
