@@ -8,13 +8,13 @@ import { join } from 'node:path';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 const { privateKey, publicKey } = await generateKeyPair('RS256');
 const jwk = { ...await exportJWK(publicKey), kid: 'test-key', alg: 'RS256', use: 'sig' };
-const issue = (audience = 'dashboard', expiration = '1h') => new SignJWT({})
+const issue = (audience = 'dashboard', expiration = '1h') => new SignJWT({ email: 'test@example.com' })
   .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
   .setIssuer('https://test.cloudflareaccess.com').setAudience(audience)
   .setSubject('admin').setIssuedAt().setExpirationTime(expiration).sign(privateKey);
 const accessToken = await issue();
 const { privateKey: attackerKey } = await generateKeyPair('RS256');
-const forgedSignature = await new SignJWT({}).setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).setIssuer('https://test.cloudflareaccess.com').setAudience('dashboard').setSubject('admin').setIssuedAt().setExpirationTime('1h').sign(attackerKey);
+const forgedSignature = await new SignJWT({ email: 'test@example.com' }).setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).setIssuer('https://test.cloudflareaccess.com').setAudience('dashboard').setSubject('admin').setIssuedAt().setExpirationTime('1h').sign(attackerKey);
 const options = (persist) => ({
   name: 'gateway', modules: true, scriptPath: 'cloudflare/dist/test.js',
   compatibilityDate: '2026-09-01', compatibilityFlags: ['nodejs_compat'],
@@ -44,7 +44,7 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
   try {
     const ping = await request('/api/ping');
     assert.equal(ping.status, 200, await ping.clone().text());
-    assert.equal((await request('/api/keys')).status, 401);
+    assert.equal((await request('/api/keys')).status, 200);
     assert.equal((await request('/v1/models')).status, 401);
     for (const path of ['/', '/api/auth/status', '/api/auth/setup', '/api/keys', '/v1beta/models', '/v1%2f../api/keys']) {
       assert.equal((await mf.dispatchFetch(`https://gateway.test${path}`)).status, 403, path);
@@ -52,16 +52,25 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
     for (const invalid of ['forged', forgedSignature, await issue('other-app'), await issue('dashboard', Math.floor(Date.now()/1000)-60)]) {
       assert.equal((await mf.dispatchFetch('https://gateway.test/api/auth/status', { headers: { 'Cf-Access-Jwt-Assertion': invalid } })).status, 403);
     }
-    const setup = await request('/api/auth/setup', { email: 'test@example.com', password: 'A-secure-password' });
-    assert.equal(setup.status, 201, await setup.clone().text());
-    const { token } = await setup.json();
+    assert.equal((await mf.dispatchFetch('https://gateway.test/api/client-profiles', {
+      method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': accessToken, Origin: 'https://other.test', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'CSRF' }),
+    })).status, 403);
+    const status = await (await request('/api/auth/status')).json();
+    assert.equal(status.needsSetup, false);
+    assert.equal(status.authenticated, true);
+    assert.equal(status.email, 'test@example.com');
+    assert.equal((await request('/api/auth/setup', { email: 'test@example.com', password: 'unused' })).status, 409);
+    assert.equal((await request('/api/auth/login', { email: 'test@example.com', password: 'unused' })).status, 409);
+    const token = undefined; // No local admin account or session exists.
     const keys = await request('/api/keys', null, token);
     assert.equal(keys.status, 200, await keys.clone().text());
     const created = await request('/api/client-profiles', { name: 'Test application' }, token);
     assert.equal(created.status, 201, await created.clone().text());
     const profile = await created.json();
     assert.ok(profile.key);
-    assert.equal((await request('/api/keys', null, profile.key)).status, 401);
+    assert.equal((await mf.dispatchFetch('https://gateway.test/api/keys', { headers: { authorization: `Bearer ${profile.key}` } })).status, 403);
+    assert.equal((await request('/api/keys/export')).status, 200);
     assert.equal((await request('/v1/models', null, profile.key)).status, 200);
     const models = await (await request('/api/models', null, token)).json();
     const cfModel = models.find(m => m.platform === 'cloudflare' && m.enabled);

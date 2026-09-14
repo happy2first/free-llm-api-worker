@@ -390,7 +390,7 @@ function skipsReauth(req: Request): boolean {
 // a local request on the desktop build (see skipsReauth).
 keysRouter.get('/export', (req: Request, res: Response) => {
   const user = (req as any).user;
-  if (!skipsReauth(req)) {
+  if (!res.locals.hostAdmin && !skipsReauth(req)) {
     const password = req.headers['x-reauth-password'] as string | undefined;
     if (!password || !verifyCredentials(user.email, password)) {
       res.status(403).json({ error: { message: 'Password verification required to export keys', type: 'authentication_error' } });
@@ -511,7 +511,7 @@ keysRouter.get('/export', (req: Request, res: Response) => {
 // skipsReauth; a LAN client of that same desktop server still needs one).
 keysRouter.post('/:id/reveal', (req: Request, res: Response) => {
   const user = (req as any).user;
-  if (!skipsReauth(req)) {
+  if (!res.locals.hostAdmin && !skipsReauth(req)) {
     const password = req.headers['x-reauth-password'] as string | undefined;
     if (!password || !verifyCredentials(user.email, password)) {
       res.status(403).json({ error: { message: 'Password verification required to reveal a key', type: 'authentication_error' } });

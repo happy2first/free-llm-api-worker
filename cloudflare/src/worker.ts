@@ -1,4 +1,5 @@
-import { accessGuard } from './access.js';
+import { decodeJwt } from 'jose';
+import { accessGuard, applicationApi } from './access.js';
 import { DurableObject } from 'cloudflare:workers';
 import { handleAsNodeRequest } from 'cloudflare:node';
 import { createServer } from 'node:http';
@@ -90,7 +91,19 @@ export class Gateway extends DurableObject<Env> {
       app.use(['/api/settings/proxy', '/api/keys'], express.json({ limit: '10mb' }));
       app.use((req, res, next) => {
         // Gateway.fetch verifies Access before passing any admin request here.
-        res.locals.hostSetupAuthorized = true;
+        if (!applicationApi(req.path)) {
+          // JWT signature/issuer/audience/expiry were checked by Gateway.fetch.
+          const identity = decodeJwt(req.headers['cf-access-jwt-assertion'] as string);
+          res.locals.hostAdmin = { userId: 0, email: typeof identity.email === 'string' ? identity.email : identity.sub };
+        }
+        if (/^\/api\/auth(?:\/|$)/i.test(req.path)) {
+          if (req.method === 'GET' && ['/api/auth/status', '/api/auth/me'].includes(req.path)) {
+            res.json({ needsSetup: false, authenticated: true, email: res.locals.hostAdmin.email });
+          } else {
+            res.status(409).json({ error: { message: 'Administrator identity is managed by Cloudflare Access', type: 'access_managed' } });
+          }
+          return;
+        }
         if (req.body?.proxyUrl && (req.path.startsWith('/api/keys') ||
           (req.path.startsWith('/api/settings/proxy') && (req.body.proxyMode ?? getProxyMode()) !== 'fetch-relay'))) {
           res.status(400).json({ error: { message: 'Cloudflare supports direct HTTPS or Fetch Relay; local forward/SOCKS proxies are unavailable', type: 'runtime_unsupported' } });

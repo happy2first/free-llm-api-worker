@@ -107,7 +107,7 @@ authRouter.post('/setup', (req: Request, res: Response) => {
   // claim the dashboard without any code. A remote caller must present the
   // one-time setup code logged at boot, so an exposed fresh install can't be
   // claimed by a stranger who finds it first.
-  if (res.locals.hostSetupAuthorized !== true && !isLoopbackRemote(req) && !setupCodeMatches((req.body ?? {}).setupCode)) {
+  if (!isLoopbackRemote(req) && !setupCodeMatches((req.body ?? {}).setupCode)) {
     res.status(403).json({
       error: {
         message: 'A setup code is required to create the first account from a remote device. ' +

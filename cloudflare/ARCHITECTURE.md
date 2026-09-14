@@ -38,7 +38,7 @@ In-flight leases are intentionally memory-only: active requests cannot survive a
 Only small host hooks are added to upstream modules:
 
 - `bindDb` supplies a host-owned synchronous database.
-- `res.locals.hostSetupAuthorized` lets a host-verified Access request complete first-run registration; Node/desktop setup keeps its original code check.
+- `res.locals.hostAdmin` supplies a verified Access administrator to the existing dashboard guard and credential reveal/export endpoints. Node/desktop retain their session and password checks.
 - The Cloudflare timeout policy is protected for reuse, and Provider `register` is exported to allow the host to replace the Cloudflare adapter.
 - Media byte arrays are expressed as `Uint8Array` for Workers/DOM Blob type compatibility.
 - Client compile-time checks hide local-only controls in Cloudflare builds.
@@ -77,4 +77,4 @@ Automated integration uses real workerd/DO SQLite with synthetic AI and Groq res
 
 ## Dashboard Access
 
-Cloudflare no longer accepts SETUP_CODE. Both public Worker and DO ingress verify Access JWTs for all paths except the explicit `/v1` namespace, using pinned jose, issuer, audience, RS256 and required expiry. The upstream setup route accepts a host-owned Express local after this verification; request headers/body cannot set it. Original sessions/passwords remain. Path-scoped Access bypass for `/v1/*` preserves application-key-only calls. Integration tests sign local RSA JWTs and mock only the trusted JWKS endpoint; production verification is unchanged.
+Cloudflare no longer accepts SETUP_CODE. Both public Worker and DO ingress verify Access JWTs for all paths except the explicit `/v1` namespace, using pinned jose, issuer, audience, RS256 and required expiry. The host supplies an Express admin local only after verification; request headers/body cannot set it. Cloudflare auth status uses verified JWT identity, local account routes are disabled, and no local user/session is created. Cross-site browser writes are rejected because Access authenticates with cookies. Path-scoped Access bypass for `/v1/*` preserves application-key-only calls. Integration tests sign local RSA JWTs and mock only the trusted JWKS endpoint; production verification is unchanged.

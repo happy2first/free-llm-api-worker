@@ -189,9 +189,15 @@ function AccountMenuItems({
         <Settings />
         {settingsLabel}
       </DropdownMenuItem>
+      {import.meta.env.VITE_RUNTIME === 'cloudflare' && (
+        <DropdownMenuItem onClick={() => { window.location.href = '/cdn-cgi/access/logout' }}>
+          <LogOut />
+          {signOutLabel}
+        </DropdownMenuItem>
+      )}
       {/* Desktop signs in with a hidden local account, so it has no credentials
           to change and no session to end. */}
-      {!isDesktopApp && (
+      {!isDesktopApp && import.meta.env.VITE_RUNTIME !== 'cloudflare' && (
         <>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onChangeEmail}>

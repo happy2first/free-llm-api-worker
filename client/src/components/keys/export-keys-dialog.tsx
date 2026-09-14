@@ -29,7 +29,8 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 // skips re-auth for local requests, so the password step is skipped here too.
 // Only the Electron preload sets this flag: a browser reaching the same desktop
 // server over LAN still walks through the step, and the server still checks it.
-const isDesktopApp = typeof window !== 'undefined'
+// Cloudflare re-verifies Access on every request instead of a local password.
+const skipsPassword = import.meta.env.VITE_RUNTIME === 'cloudflare' || typeof window !== 'undefined'
   && (window as Window & { __FREEAPI_DESKTOP__?: boolean }).__FREEAPI_DESKTOP__ === true
 
 async function downloadExport(format: ExportFormat, healthyOnly: boolean, password: string) {
@@ -198,13 +199,13 @@ export function ExportKeysDialog({ open, onOpenChange }: { open: boolean; onOpen
           <Button
             type="button"
             className="w-full"
-            onClick={() => (isDesktopApp ? handleExport() : setStep('password'))}
+            onClick={() => (skipsPassword ? handleExport() : setStep('password'))}
             disabled={exportCount === 0 || exporting}
           >
             <Download className="size-3.5" />
             {exporting ? t('keys.exporting') : t('keys.exportDownload')}
           </Button>
-          {isDesktopApp && error && <FieldError error={error} />}
+          {skipsPassword && error && <FieldError error={error} />}
         </div>
         )}
       </DialogPopup>

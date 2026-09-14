@@ -15,6 +15,13 @@ export async function accessGuard(request: Request, env: AccessConfig): Promise<
     { error: { type: 'access_required', message } },
     { status, headers: { 'Cache-Control': 'no-store' } },
   );
+  // Access uses browser cookies: reject cross-site writes before admin routes.
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+    const origin = request.headers.get('Origin');
+    if ((origin && origin !== new URL(request.url).origin) || request.headers.get('Sec-Fetch-Site') === 'cross-site') {
+      return failure(403, 'Cross-site dashboard writes are not allowed');
+    }
+  }
   const configuredDomain = env.TEAM_DOMAIN?.trim();
   let domain = '';
   try {

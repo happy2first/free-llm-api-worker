@@ -36,14 +36,14 @@ npm run deploy:cloudflare
 ```
 
 - `ENCRYPTION_KEY` 必须为 64 位十六进制值；保存好，丢失后无法解密已有 Provider 凭证。不要用普通环境变量或提交到仓库。更换它不是普通配置修改，需要迁移旧密文。
-- 已移除 Cloudflare 部署的 `SETUP_CODE`。首次注册由 Access 保护，原有管理员账号、密码和会话继续保留。
+- 已移除 Cloudflare 部署的 `SETUP_CODE`。后台完全使用 Access 身份，无需创建本地管理员或再次登录；所有获后台 Access 应用允许的用户均有管理权限。
 - 普通运行时变量 `TEAM_DOMAIN` 填团队域名（如 `https://your-team.cloudflareaccess.com`；也兼容不带协议的值），`ACCESS_AUD` 填后台 Access 应用的 Application Audience (AUD)。这两项是公开标识，不是新密码。
 - 缺少加密密钥时服务不能初始化；缺少 Access 配置时后台返回 503，缺少有效 Access 身份时返回 403。`/v1/*` 始终使用原有应用 API Key 校验。
 - `wrangler.jsonc` 中已经声明 `GATEWAY` SQLite Durable Object、`AI` 和 `ASSETS` 绑定及首次迁移；不需要 D1 数据库 ID。Wrangler 自动构建后部署。
 - 保持 Worker 名称、`Gateway` 类名、`primary` 对象名和迁移历史稳定。更改它们可能指向新数据库。
 - `keep_vars` 保留控制台设置的普通变量；绑定仍由 `wrangler.jsonc` 管理。若自行添加绑定，应同时写入配置，不能假设部署会保留未声明的绑定。
 
-打开部署产生的 HTTPS 地址，通过 Access 登录后注册管理员，然后在平台密钥页加入需要的上游凭证，在 API 密钥页创建应用 Key。
+打开部署产生的 HTTPS 地址，通过 Access 登录后直接进入后台，然后在平台密钥页加入需要的上游凭证，在 API 密钥页创建应用 Key。
 
 ```bash
 curl https://YOUR-WORKER.workers.dev/v1/chat/completions \
@@ -61,7 +61,7 @@ curl https://YOUR-WORKER.workers.dev/v1/chat/completions \
 3. Zero Trust → Access → Applications → Add an application → Self-hosted。创建 `FreeLLMAPI Admin`，Public hostname 填 Worker 的完整域名（不含 https://），Path 留空。添加 Allow 策略，Include → Emails → 只填管理员自己的邮箱。保存。复制该应用的 Application Audience (AUD)。
 4. 再创建 `FreeLLMAPI API` 自托管应用，同一个域名，Path 填 `v1/*`。策略 Action 选 **Bypass**，Include 选 **Everyone**。这只绕过 Access，Worker 中的应用 Key 校验仍然生效；不要给整个域名或 `/api/*` 配 Bypass。需要访问精确 `/v1` 时，也将该路径作为本 API 应用的独立 hostname/path 条目添加。
 5. Worker → 设置 → **运行时**变量和机密：Secret `ENCRYPTION_KEY`；Text `TEAM_DOMAIN`；Text `ACCESS_AUD`（复制第 3 步后台应用的 AUD，不是 API 应用 AUD）。Build 页面内的构建变量不能代替运行时变量。已配置的 `SETUP_CODE` 可删除。
-6. 部署最新分支，访问域名，经 Access 登录后创建原有后台管理员。无需 Setup Code。随后在后台添加 Provider，并为外部应用创建 API Key。
+6. 部署最新分支，访问域名，经 Access 登录后直接进入后台，无需本地管理员账号或 Setup Code。随后在后台添加 Provider，并为外部应用创建 API Key。
 7. 验收：无痕访问后台应进入 Access；无登录、无 Key 请求 `/v1/models` 应返回 JSON 401，而不是 Access 登录页；带应用 Key 应返回 200。应用 Key 单独访问 `/api/keys` 应被 Access 拦截。
 
 同一域名下更具体的 `v1/*` 应用优先于整个域名的后台应用。使用自定义域名时，在该域名建立这两条应用；其他 workers.dev/预览地址即使未配 Access，也会被 Worker 的 JWT 校验拒绝访问后台。需要从另一域名登录后台时，将它加入后台应用并配置相应 API 例外。
@@ -86,7 +86,7 @@ npm run typecheck:cloudflare
 npx wrangler deploy --dry-run
 ```
 
-集成测试在真实 workerd + SQLite Durable Object 中验证全量迁移、嵌套事务、命名参数、初始化保护、管理员/应用鉴权隔离、Key 禁用、普通与流式推理、Responses、Groq 转发、Cloudflare 故障后回退到 Groq、重启后会话/Key/额度保留及 Alarm 续订。类型生成文件和构建产物不提交。
+集成测试在真实 workerd + SQLite Durable Object 中验证全量迁移、嵌套事务、命名参数、初始化保护、管理员/应用鉴权隔离、Key 禁用、普通与流式推理、Responses、Groq 转发、Cloudflare 故障后回退到 Groq、重启后 Access 登录可用及 Key/额度保留及 Alarm 续订。类型生成文件和构建产物不提交。
 
 完整上游回归由原有 `.github/workflows/ci.yml` 执行；新增 `cloudflare.yml` 验证 Cloudflare 专用构建和运行时。测试替身位于 `cloudflare/test/entry.ts`，不导出到部署产物。
 
@@ -103,3 +103,5 @@ npx wrangler deploy --dry-run
 Cloudflare 官方参考：[Node HTTP/Express 接入](https://developers.cloudflare.com/workers/runtime-apis/nodejs/http/)、[SQLite Durable Object](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)、[Workers AI 绑定](https://developers.cloudflare.com/workers-ai/configuration/bindings/)。
 
 架构决策和后续同步方法见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+后台退出按钮跳转到 `/cdn-cgi/access/logout`。更改登录邮箱、密码和访问权限请在 Access/身份提供商管理；本地注册、登录、重置与修改密码接口在 Workers 返回 `access_managed`。复制、导出 Provider 凭证使用 Access 验证，无本地密码步骤。旧账号数据不删除，但不能再通过本地密码登录 Cloudflare 后台。
