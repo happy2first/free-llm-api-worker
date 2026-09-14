@@ -110,6 +110,22 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
     assert.equal(probeResult.invalidTool.ok, false);
     assert.deepEqual(probeResult.rows.map(row => row.id), [1, 3]);
     assert.deepEqual(probeResult.bound, { sql: "SELECT '@literal', ? -- @comment", values: [7] });
+    // Reconstruct just the object, keeping its isolate (and HTTP registry) alive.
+    const ns = await mf.getDurableObjectNamespace('GATEWAY');
+    const stub = () => ns.get(ns.idFromName('primary'));
+    const generation = async () => (await (await stub().fetch('https://test/__test/generation')).json()).generation;
+    let previous = await generation();
+    for (let i = 0; i < 2; i++) {
+      await assert.rejects(stub().fetch('https://test/__test/abort'));
+      const response = await request('/v1/models', null, profile.key);
+      assert.equal(response.status, 200, await response.clone().text());
+      const current = await generation();
+      assert.ok(current > previous, 'object reconstructed in the same isolate');
+      previous = current;
+      assert.equal((await request('/v1/models')).status, 401);
+      assert.equal((await request('/api/auth/status')).status, 200);
+      assert.equal((await request('/api/client-profiles')).status, 200);
+    }
     await mf.dispose();
     mf = new Miniflare({ ...convertV4MiniflareOptions(options(persist)), resourcePersistencePath: persist, isolatedResourcePersistencePath: persist });
     assert.equal((await request('/v1/models', null, profile.key)).status, 200);

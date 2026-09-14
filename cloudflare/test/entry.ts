@@ -31,11 +31,15 @@ export class SqlProbe extends DurableObject {
   }
 }
 
+let gatewayGeneration = 0;
 export class Gateway extends ProductionGateway {
+  private generation = ++gatewayGeneration;
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, { ...env, AI: new MockAI() });
   }
   override async fetch(request: Request) {
+    if (new URL(request.url).pathname === '/__test/generation') return Response.json({ generation: this.generation });
+    if (new URL(request.url).pathname === '/__test/abort') this.ctx.abort('Test gateway reconstruction');
     if (new URL(request.url).pathname === '/__test/maintenance') {
       await this.alarm();
       return Response.json({ alarm: await this.ctx.storage.getAlarm(), usage: this.ctx.storage.sql.exec('SELECT COUNT(*) AS n FROM rate_limit_usage').one().n });

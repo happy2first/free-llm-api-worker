@@ -34,6 +34,20 @@ export interface Env {
 installLogRedaction();
 const OBJECT_NAME = 'primary';
 const PORT = 8788;
+// node:http's port registry lives for the isolate, not the Durable Object.
+// An object can be reconstructed while its previous listener is still alive.
+// Register once and replace the app after each successful object initialization
+// so requests use the current database/provider bindings, never an old instance.
+let gatewayApp: ReturnType<typeof express> | undefined;
+const server = createServer((req, res) => {
+  if (!gatewayApp) {
+    res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ error: { type: 'gateway_unavailable', message: 'Gateway is initializing' } }));
+    return;
+  }
+  gatewayApp(req, res);
+});
+server.listen(PORT);
 const apiPath = (path: string) => /^\/(api|v1|v1beta|mcp)(\/|$)/.test(path) || ['/livez', '/readyz'].includes(path);
 
 export default {
@@ -117,8 +131,8 @@ export class Gateway extends DurableObject<Env> {
       });
       const config = { ...loadConfig(), serveStaticAssets: false, trustProxy: true };
       app.use(createApp(config));
-      createServer(app).listen(PORT);
       if (await ctx.storage.getAlarm() === null) await ctx.storage.setAlarm(Date.now() + 10_000);
+      gatewayApp = app;
     });
   }
   async fetch(request: Request) {
