@@ -27,7 +27,7 @@ export interface Env {
   ASSETS: Fetcher;
   AI: AiBinding;
   ENCRYPTION_KEY: string;
-  ACCESS_TEAM_DOMAIN: string;
+  TEAM_DOMAIN: string;
   ACCESS_AUD: string;
 }
 installLogRedaction();

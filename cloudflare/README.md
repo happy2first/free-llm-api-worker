@@ -37,7 +37,7 @@ npm run deploy:cloudflare
 
 - `ENCRYPTION_KEY` 必须为 64 位十六进制值；保存好，丢失后无法解密已有 Provider 凭证。不要用普通环境变量或提交到仓库。更换它不是普通配置修改，需要迁移旧密文。
 - 已移除 Cloudflare 部署的 `SETUP_CODE`。首次注册由 Access 保护，原有管理员账号、密码和会话继续保留。
-- 普通运行时变量 `ACCESS_TEAM_DOMAIN` 填团队域名（如 `your-team.cloudflareaccess.com`，不含协议），`ACCESS_AUD` 填后台 Access 应用的 Application Audience (AUD)。这两项是公开标识，不是新密码。
+- 普通运行时变量 `TEAM_DOMAIN` 填团队域名（如 `https://your-team.cloudflareaccess.com`；也兼容不带协议的值），`ACCESS_AUD` 填后台 Access 应用的 Application Audience (AUD)。这两项是公开标识，不是新密码。
 - 缺少加密密钥时服务不能初始化；缺少 Access 配置时后台返回 503，缺少有效 Access 身份时返回 403。`/v1/*` 始终使用原有应用 API Key 校验。
 - `wrangler.jsonc` 中已经声明 `GATEWAY` SQLite Durable Object、`AI` 和 `ASSETS` 绑定及首次迁移；不需要 D1 数据库 ID。Wrangler 自动构建后部署。
 - 保持 Worker 名称、`Gateway` 类名、`primary` 对象名和迁移历史稳定。更改它们可能指向新数据库。
@@ -60,7 +60,7 @@ curl https://YOUR-WORKER.workers.dev/v1/chat/completions \
 2. 先为实际使用的域名配置下面两条 **Self-hosted / 自托管** Access 应用。不要使用 Worker 的“所有流量”保护，因为它也会挡住 OpenAI API。若已启用 Worker 级保护，需要改用域名应用；账户级全局保护也不能继续挡住此 Worker 的 API。
 3. Zero Trust → Access → Applications → Add an application → Self-hosted。创建 `FreeLLMAPI Admin`，Public hostname 填 Worker 的完整域名（不含 https://），Path 留空。添加 Allow 策略，Include → Emails → 只填管理员自己的邮箱。保存。复制该应用的 Application Audience (AUD)。
 4. 再创建 `FreeLLMAPI API` 自托管应用，同一个域名，Path 填 `v1/*`。策略 Action 选 **Bypass**，Include 选 **Everyone**。这只绕过 Access，Worker 中的应用 Key 校验仍然生效；不要给整个域名或 `/api/*` 配 Bypass。需要访问精确 `/v1` 时，也将该路径作为本 API 应用的独立 hostname/path 条目添加。
-5. Worker → 设置 → **运行时**变量和机密：Secret `ENCRYPTION_KEY`；Text `ACCESS_TEAM_DOMAIN`；Text `ACCESS_AUD`（复制第 3 步后台应用的 AUD，不是 API 应用 AUD）。Build 页面内的构建变量不能代替运行时变量。已配置的 `SETUP_CODE` 可删除。
+5. Worker → 设置 → **运行时**变量和机密：Secret `ENCRYPTION_KEY`；Text `TEAM_DOMAIN`；Text `ACCESS_AUD`（复制第 3 步后台应用的 AUD，不是 API 应用 AUD）。Build 页面内的构建变量不能代替运行时变量。已配置的 `SETUP_CODE` 可删除。
 6. 部署最新分支，访问域名，经 Access 登录后创建原有后台管理员。无需 Setup Code。随后在后台添加 Provider，并为外部应用创建 API Key。
 7. 验收：无痕访问后台应进入 Access；无登录、无 Key 请求 `/v1/models` 应返回 JSON 401，而不是 Access 登录页；带应用 Key 应返回 200。应用 Key 单独访问 `/api/keys` 应被 Access 拦截。
 

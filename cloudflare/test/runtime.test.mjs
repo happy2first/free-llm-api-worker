@@ -20,7 +20,7 @@ const options = (persist) => ({
   compatibilityDate: '2026-09-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { GATEWAY: { className: 'Gateway', useSQLite: true }, SQL_PROBE: { className: 'SqlProbe', useSQLite: true } },
   durableObjectsPersist: persist,
-  bindings: { ENCRYPTION_KEY: '12'.repeat(32), ACCESS_TEAM_DOMAIN: 'test.cloudflareaccess.com', ACCESS_AUD: 'dashboard', NODE_ENV: 'production', CATALOG_SYNC_DISABLED: '1' },
+  bindings: { ENCRYPTION_KEY: '12'.repeat(32), TEAM_DOMAIN: 'https://test.cloudflareaccess.com', ACCESS_AUD: 'dashboard', NODE_ENV: 'production', CATALOG_SYNC_DISABLED: '1' },
   outboundService: async request => {
     const url = new URL(request.url);
     if (url.hostname === 'test.cloudflareaccess.com' && url.pathname === '/cdn-cgi/access/certs') return Response.json({ keys: [jwk] });

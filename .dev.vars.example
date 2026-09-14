@@ -1,5 +1,5 @@
 # Never commit .dev.vars. Generate the encryption secret independently.
 # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ENCRYPTION_KEY=replace-with-64-hex-characters
-ACCESS_TEAM_DOMAIN=your-team.cloudflareaccess.com
+TEAM_DOMAIN=https://your-team.cloudflareaccess.com
 ACCESS_AUD=copy-application-audience-from-access

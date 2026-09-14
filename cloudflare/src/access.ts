@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 
-interface AccessConfig { ACCESS_TEAM_DOMAIN?: string; ACCESS_AUD?: string }
+interface AccessConfig { TEAM_DOMAIN?: string; ACCESS_AUD?: string }
 const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 // Only the explicit OpenAI API namespace is exempt. Encoded/ambiguous paths
@@ -15,9 +15,18 @@ export async function accessGuard(request: Request, env: AccessConfig): Promise<
     { error: { type: 'access_required', message } },
     { status, headers: { 'Cache-Control': 'no-store' } },
   );
-  const domain = env.ACCESS_TEAM_DOMAIN?.trim();
-  if (!domain || !/^[a-z0-9-]+\.cloudflareaccess\.com$/.test(domain) || !env.ACCESS_AUD?.trim()) {
-    return failure(503, 'Configure ACCESS_TEAM_DOMAIN and ACCESS_AUD for dashboard Access');
+  const configuredDomain = env.TEAM_DOMAIN?.trim();
+  let domain = '';
+  try {
+    const teamUrl = new URL(configuredDomain?.includes('://') ? configuredDomain : `https://${configuredDomain}`);
+    if (teamUrl.protocol === 'https:' && teamUrl.pathname === '/' && !teamUrl.search && !teamUrl.hash) {
+      domain = teamUrl.hostname.toLowerCase();
+    }
+  } catch {
+    // Report the same configuration error below without reflecting the value.
+  }
+  if (!/^[a-z0-9-]+\.cloudflareaccess\.com$/.test(domain) || !env.ACCESS_AUD?.trim()) {
+    return failure(503, 'Configure TEAM_DOMAIN and ACCESS_AUD for dashboard Access');
   }
   const token = request.headers.get('Cf-Access-Jwt-Assertion');
   if (!token) return failure(403, 'Sign in through Cloudflare Access to use the dashboard');
