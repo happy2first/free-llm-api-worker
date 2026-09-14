@@ -1,5 +1,4 @@
 import { createOneTimeCode } from './one-time-code.js';
-import { timingSafeEqual } from 'node:crypto';
 
 // One-time first-run setup code.
 //
@@ -13,12 +12,6 @@ import { timingSafeEqual } from 'node:crypto';
 // an account exists.
 
 const _code = createOneTimeCode();
-let hostCode: string | null = null;
-
-/** A hosted runtime can supply a deployment secret instead of logging a code. */
-export function configureSetupCode(code: string): void {
-  hostCode = code;
-}
 
 // Mint a fresh code and log it prominently. Call once at boot when there are
 // zero accounts. Returns the code (handy for tests).
@@ -37,18 +30,11 @@ export function getSetupCode(): string | null {
 }
 
 export function clearSetupCode(): void {
-  hostCode = null;
   _code.clear();
 }
 
 // Constant-time comparison against the active code. Returns false when no code
 // is active or the input is not a matching string.
 export function setupCodeMatches(provided: unknown): boolean {
-  if (hostCode !== null) {
-    if (typeof provided !== 'string') return false;
-    const expected = Buffer.from(hostCode);
-    const actual = Buffer.from(provided);
-    return expected.length === actual.length && timingSafeEqual(expected, actual);
-  }
   return _code.matches(provided);
 }

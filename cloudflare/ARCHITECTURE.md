@@ -11,7 +11,7 @@ Baseline: `tashfeenahmed/freellmapi`, commit `65c7d2f9293360bc49a7ad45d02bb7d536
 | Model intelligence | Bundled SQL model seed, signed Catalog sync, overrides and retirement | Reuse migrations, signature checks, tier rules and overrides; invoke sync from alarms |
 | Routing / fallback | Scoring, profiles, per-key leases, retries, circuit/cooldown state, fallback loop | Reuse without a parallel routing implementation; all requests enter one named DO |
 | Persistence | Synchronous `Db` interface, SQLite statements, named bindings, transactions | Implement the existing interface with synchronous DO SQL and `transactionSync` |
-| Credentials | AES-GCM provider keys, hashed sessions/client keys, administrator setup | Reuse crypto/auth; inject encryption and setup Secrets; guard synthetic loopback setup |
+| Credentials | AES-GCM provider keys, hashed sessions/client keys, administrator setup | Reuse crypto/auth; inject encryption Secret; verify Access JWT for dashboard/setup |
 | Protocols | Chat Completions, Responses, Anthropic, Gemini, Ollama, MCP | Original route modules bundled; no new protocol implementations |
 | Web UI | React/Vite client, Provider and client-profile management | Same app via static assets; compile-time runtime notice and local-feature isolation |
 | Background work | Process scheduler, startup hooks, cache restore | Persistent DO Alarm, durable due timestamps, existing service functions |
@@ -38,7 +38,7 @@ In-flight leases are intentionally memory-only: active requests cannot survive a
 Only small host hooks are added to upstream modules:
 
 - `bindDb` supplies a host-owned synchronous database.
-- `configureSetupCode` supplies a non-logged deployment secret.
+- `res.locals.hostSetupAuthorized` lets a host-verified Access request complete first-run registration; Node/desktop setup keeps its original code check.
 - The Cloudflare timeout policy is protected for reuse, and Provider `register` is exported to allow the host to replace the Cloudflare adapter.
 - Media byte arrays are expressed as `Uint8Array` for Workers/DOM Blob type compatibility.
 - Client compile-time checks hide local-only controls in Cloudflare builds.
@@ -74,3 +74,7 @@ If `upstream` already exists, verify its URL instead of adding it again. Resolve
 ## Validation limits
 
 Automated integration uses real workerd/DO SQLite with synthetic AI and Groq responses. It establishes transport, route and persistence behavior; it cannot establish each vendor's live credentials, quotas, current models or production availability. Retaining all protocol modules is not equivalent to exhaustive acceptance testing of every vendor/modality combination. No claims of production load-test results are made.
+
+## Dashboard Access
+
+Cloudflare no longer accepts SETUP_CODE. Both public Worker and DO ingress verify Access JWTs for all paths except the explicit `/v1` namespace, using pinned jose, issuer, audience, RS256 and required expiry. The upstream setup route accepts a host-owned Express local after this verification; request headers/body cannot set it. Original sessions/passwords remain. Path-scoped Access bypass for `/v1/*` preserves application-key-only calls. Integration tests sign local RSA JWTs and mock only the trusted JWKS endpoint; production verification is unchanged.

@@ -5,15 +5,25 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const secret = 'local-test-setup-secret-not-for-production';
+import { generateKeyPair, exportJWK, SignJWT } from 'jose';
+const { privateKey, publicKey } = await generateKeyPair('RS256');
+const jwk = { ...await exportJWK(publicKey), kid: 'test-key', alg: 'RS256', use: 'sig' };
+const issue = (audience = 'dashboard', expiration = '1h') => new SignJWT({})
+  .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
+  .setIssuer('https://test.cloudflareaccess.com').setAudience(audience)
+  .setSubject('admin').setIssuedAt().setExpirationTime(expiration).sign(privateKey);
+const accessToken = await issue();
+const { privateKey: attackerKey } = await generateKeyPair('RS256');
+const forgedSignature = await new SignJWT({}).setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).setIssuer('https://test.cloudflareaccess.com').setAudience('dashboard').setSubject('admin').setIssuedAt().setExpirationTime('1h').sign(attackerKey);
 const options = (persist) => ({
   name: 'gateway', modules: true, scriptPath: 'cloudflare/dist/test.js',
   compatibilityDate: '2026-09-01', compatibilityFlags: ['nodejs_compat'],
   durableObjects: { GATEWAY: { className: 'Gateway', useSQLite: true }, SQL_PROBE: { className: 'SqlProbe', useSQLite: true } },
   durableObjectsPersist: persist,
-  bindings: { ENCRYPTION_KEY: '12'.repeat(32), SETUP_CODE: secret, NODE_ENV: 'production', CATALOG_SYNC_DISABLED: '1' },
+  bindings: { ENCRYPTION_KEY: '12'.repeat(32), ACCESS_TEAM_DOMAIN: 'test.cloudflareaccess.com', ACCESS_AUD: 'dashboard', NODE_ENV: 'production', CATALOG_SYNC_DISABLED: '1' },
   outboundService: async request => {
     const url = new URL(request.url);
+    if (url.hostname === 'test.cloudflareaccess.com' && url.pathname === '/cdn-cgi/access/certs') return Response.json({ keys: [jwk] });
     if (url.hostname === 'api.groq.com') {
       if (url.pathname.endsWith('/models')) return Response.json({ data: [{ id: 'llama-3.3-70b-versatile' }] });
       return Response.json({ id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: 'llama-3.3-70b-versatile', choices: [{ index: 0, message: { role: 'assistant', content: 'groq reply' }, finish_reason: 'stop' }], usage: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 } });
@@ -28,7 +38,7 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
   let mf = new Miniflare({ ...convertV4MiniflareOptions(options(persist)), resourcePersistencePath: persist, isolatedResourcePersistencePath: persist });
   const request = (path, body, token, method) => mf.dispatchFetch(`https://gateway.test${path}`, {
     method: method ?? (body ? 'POST' : 'GET'),
-    headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: { ...(!path.startsWith('/v1/') ? { 'Cf-Access-Jwt-Assertion': accessToken } : {}), ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   try {
@@ -36,8 +46,13 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
     assert.equal(ping.status, 200, await ping.clone().text());
     assert.equal((await request('/api/keys')).status, 401);
     assert.equal((await request('/v1/models')).status, 401);
-    assert.equal((await request('/api/auth/setup', { email: 'test@example.com', password: 'A-secure-password' })).status, 403);
-    const setup = await request('/api/auth/setup', { email: 'test@example.com', password: 'A-secure-password', setupCode: secret });
+    for (const path of ['/', '/api/auth/status', '/api/auth/setup', '/api/keys', '/v1beta/models', '/v1%2f../api/keys']) {
+      assert.equal((await mf.dispatchFetch(`https://gateway.test${path}`)).status, 403, path);
+    }
+    for (const invalid of ['forged', forgedSignature, await issue('other-app'), await issue('dashboard', Math.floor(Date.now()/1000)-60)]) {
+      assert.equal((await mf.dispatchFetch('https://gateway.test/api/auth/status', { headers: { 'Cf-Access-Jwt-Assertion': invalid } })).status, 403);
+    }
+    const setup = await request('/api/auth/setup', { email: 'test@example.com', password: 'A-secure-password' });
     assert.equal(setup.status, 201, await setup.clone().text());
     const { token } = await setup.json();
     const keys = await request('/api/keys', null, token);

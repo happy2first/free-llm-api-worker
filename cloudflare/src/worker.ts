@@ -1,16 +1,14 @@
+import { accessGuard } from './access.js';
 import { DurableObject } from 'cloudflare:workers';
 import { handleAsNodeRequest } from 'cloudflare:node';
 import { createServer } from 'node:http';
 import express from 'express';
-import { timingSafeEqual } from 'node:crypto';
 import { createApp, INLINE_BOOTSTRAP_SHA } from '../../server/src/app.js';
 import { bindDb, getDb, getSetting, setSetting } from '../../server/src/db/index.js';
 import { runMigrationsSync } from '../../server/src/db/migrate/runner.js';
 import { initEncryptionKey, encrypt } from '../../server/src/lib/crypto.js';
 import { installLogRedaction } from '../../server/src/lib/log-redaction.js';
 import { loadConfig } from '../../server/src/lib/config.js';
-import { configureSetupCode } from '../../server/src/lib/setup-code.js';
-import { userCount } from '../../server/src/services/auth.js';
 import { register } from '../../server/src/providers/index.js';
 import { restoreProxySettings, getProxyMode } from '../../server/src/lib/proxy.js';
 import { loadCacheFromDb } from '../../server/src/services/cache.js';
@@ -29,7 +27,8 @@ export interface Env {
   ASSETS: Fetcher;
   AI: AiBinding;
   ENCRYPTION_KEY: string;
-  SETUP_CODE: string;
+  ACCESS_TEAM_DOMAIN: string;
+  ACCESS_AUD: string;
 }
 installLogRedaction();
 const OBJECT_NAME = 'primary';
@@ -38,6 +37,8 @@ const apiPath = (path: string) => /^\/(api|v1|v1beta|mcp)(\/|$)/.test(path) || [
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const denied = await accessGuard(request, env);
+    if (denied) return denied;
     const url = new URL(request.url);
     if (!apiPath(url.pathname)) {
       const asset = await env.ASSETS.fetch(request);
@@ -66,10 +67,8 @@ export class Gateway extends DurableObject<Env> {
     if (!ctx.id.equals(env.GATEWAY.idFromName(OBJECT_NAME))) throw new Error('Only the primary gateway object is supported');
     this.ready = ctx.blockConcurrencyWhile(async () => {
       if (!/^[a-fA-F0-9]{64}$/.test(env.ENCRYPTION_KEY ?? '')) throw new Error('Set ENCRYPTION_KEY to 64 hex characters');
-      if ((env.SETUP_CODE ?? '').length < 24) throw new Error('Set SETUP_CODE to at least 24 random characters');
       process.env.ENCRYPTION_KEY = env.ENCRYPTION_KEY;
       process.env.IMAGE_NORMALIZE = 'off';
-      configureSetupCode(env.SETUP_CODE);
       bindDb(durableSqlite(ctx.storage));
       runMigrationsSync(getDb());
       initAdmission(getDb());
@@ -90,17 +89,8 @@ export class Gateway extends DurableObject<Env> {
       app.use('/api/auth/setup', express.json({ limit: '16kb' }));
       app.use(['/api/settings/proxy', '/api/keys'], express.json({ limit: '10mb' }));
       app.use((req, res, next) => {
-        // The node:http bridge has a synthetic socket peer; never allow it to
-        // trigger upstream's localhost exemption for first-run registration.
-        if (req.path === '/api/auth/setup' && userCount() === 0) {
-          const supplied = Buffer.from(typeof req.body?.setupCode === 'string' ? req.body.setupCode : '');
-          const expected = Buffer.from(env.SETUP_CODE);
-          if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-            res.status(403).json({ error: { message: 'The deployment SETUP_CODE secret is required', type: 'setup_code_required' } });
-            return;
-          }
-          // Upstream validates the configured setup code as well (host hook).
-        }
+        // Gateway.fetch verifies Access before passing any admin request here.
+        res.locals.hostSetupAuthorized = true;
         if (req.body?.proxyUrl && (req.path.startsWith('/api/keys') ||
           (req.path.startsWith('/api/settings/proxy') && (req.body.proxyMode ?? getProxyMode()) !== 'fetch-relay'))) {
           res.status(400).json({ error: { message: 'Cloudflare supports direct HTTPS or Fetch Relay; local forward/SOCKS proxies are unavailable', type: 'runtime_unsupported' } });
@@ -119,6 +109,8 @@ export class Gateway extends DurableObject<Env> {
     });
   }
   async fetch(request: Request) {
+    const denied = await accessGuard(request, this.env);
+    if (denied) return denied;
     await this.ready;
     const path = new URL(request.url).pathname;
     const isAuth = /^\/api\/auth\/(login|setup|reset)/.test(path) && request.method === 'POST';
