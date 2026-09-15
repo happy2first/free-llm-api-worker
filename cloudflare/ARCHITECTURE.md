@@ -12,7 +12,7 @@ Baseline: `tashfeenahmed/freellmapi`, commit `65c7d2f9293360bc49a7ad45d02bb7d536
 | Routing / fallback | Scoring, profiles, per-key leases, retries, circuit/cooldown state, fallback loop | Reuse without a parallel routing implementation; all requests enter one named DO |
 | Persistence | Synchronous `Db` interface, SQLite statements, named bindings, transactions | Implement the existing interface with synchronous DO SQL and `transactionSync` |
 | Credentials | AES-GCM provider keys, hashed sessions/client keys, administrator setup | Reuse crypto/auth; inject encryption Secret; verify Access JWT for dashboard/setup |
-| Protocols | Chat Completions, Responses, Anthropic, Gemini, Ollama, MCP | Original route modules bundled; no new protocol implementations |
+| Protocols | Chat Completions, Responses, Anthropic, Gemini, Ollama, MCP | Original inference routes bundled; Catalog adds a stateless administrator MCP endpoint |
 | Web UI | React/Vite client, Provider and client-profile management | Same app via static assets; compile-time runtime notice and local-feature isolation |
 | Background work | Process scheduler, startup hooks, cache restore | Persistent DO Alarm, durable due timestamps, existing service functions |
 | Native / local-only | sharp, better-sqlite3, filesystem backup, child process updates, proxy agents | Not used on Workers; optional native package aliases throw clearly; local UI/actions isolated |
@@ -31,7 +31,7 @@ The server already expresses SQL access as synchronous `prepare().get/all/run` a
 
 A DO is a Workers runtime with persistent state, not a VPS or a Cloudflare Container. The public Worker forwards only API traffic to one constant object ID; static assets are served directly. No upstream URL, API key or request header can choose another object ID. The constructor rejects other IDs because upstream services use module-level caches. Do not repurpose this class as a multi-tenant namespace without first moving those globals into explicit per-instance state.
 
-In-flight leases are intentionally memory-only: active requests cannot survive an isolate restart. Recorded usage and cooldowns remain in SQL. Authentication admission is also persisted so eviction does not reset guessing limits. Browser assets keep the upstream bootstrap CSP hash; API responses are not cached.
+In-flight leases are intentionally memory-only: active requests cannot survive an isolate restart. Recorded usage and cooldowns remain in SQL. Ordinary admission uses the Workers Rate Limiting binding plus a bounded DO memory fallback; Access protects administrator authentication. Admission does not write SQLite. Browser assets keep the upstream bootstrap CSP hash; API responses are not cached.
 
 ## Compatibility seams
 
@@ -78,3 +78,19 @@ Automated integration uses real workerd/DO SQLite with synthetic AI and Groq res
 ## Dashboard Access
 
 Cloudflare no longer accepts SETUP_CODE. Both public Worker and DO ingress verify Access JWTs for all paths except the explicit `/v1` namespace, using pinned jose, issuer, audience, RS256 and required expiry. The host supplies an Express admin local only after verification; request headers/body cannot set it. Cloudflare auth status uses verified JWT identity, local account routes are disabled, and no local user/session is created. Cross-site browser writes are rejected because Access authenticates with cookies. Path-scoped Access bypass for `/v1/*` preserves application-key-only calls. Integration tests sign local RSA JWTs and mock only the trusted JWKS endpoint; production verification is unchanged.
+
+
+## September resource/catalog extension
+
+See [RESOURCE-CATALOG.md](RESOURCE-CATALOG.md). Resource policy is host opt-in through
+`server/src/lib/runtime-policy.ts`; Node/Docker retain their analytics/logging defaults.
+The only routing query change substitutes a union of historical/error requests and
+compact successful routing events. Its fields, time windows, decays, per-key scopes
+and scoring math are unchanged. There is no D1 migration, extra Gateway, new provider,
+or change to the Express bridge / LLM streaming lifecycle.
+
+Catalog management edits the existing model tables. `catalog_annotations` only holds
+optional intelligence and deletion ownership; it is not a second model registry.
+`catalog_history` retains at most 100 administrative/sync events. Sync takes one
+ownership snapshot before applying or pruning any catalog category. Maintain this
+protection whenever adding future catalog categories or upstream migrations.

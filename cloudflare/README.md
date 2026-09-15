@@ -10,7 +10,7 @@
 - 下游接口：沿用“API 密钥”页面中的客户端配置，创建、禁用、轮换、删除各应用独立 Key。应用 Key 不能访问管理 API。
 - OpenAI Chat Completions、流式 SSE、Responses，以及原有 Anthropic、Gemini、Ollama 协议路由保留。各模型实际支持的模态、工具与参数仍取决于 Provider。
 - Cloudflare Workers AI：首次初始化生成名为 `Workers AI (native binding)` 的凭证记录，调用 `AI.run()`，无需另存本账户的 API Token。可在后台禁用或删除；之后启动不会重新创建。其他账户仍可按上游格式 `account_id:api_token` 添加，走原 REST Provider。
-- 数据：凭证密文、会话、应用 Key、模型、Catalog、额度使用、冷却、路由配置、请求日志和缓存保存在 Durable Object SQLite。
+- 数据：凭证密文、会话、应用 Key、模型、Catalog、额度使用、冷却、路由配置、异常请求、路由必需的精简统计和缓存保存在 Durable Object SQLite。普通控制台日志只留内存和 Workers Logs；成功请求分析写 Analytics Engine。
 - 维护：Durable Object Alarm 每 5 分钟唤醒，执行健康检查、冷却恢复和清理；Catalog 每 12 小时检查，Custom Model 同步每 6 小时检查。调度不依赖用户访问，也不依赖 `setInterval`。保留 Catalog 签名检查和原有免费/付费目录规则。
 
 ## 部署
@@ -97,7 +97,7 @@ npx wrangler deploy --dry-run
 - 本机文件备份、桌面/Git 自更新、系统代理发现、SOCKS/HTTP CONNECT 代理和原生 sharp 图像压缩不在 Workers 运行目标中。后台隐藏这些本机入口，备份/更新接口返回明确的 501。图片原始内容继续传递给上游。
 - 外部 HTTPS Provider 和 Fetch Relay 可使用；不能从 Workers 访问家里或办公网的 localhost/LAN Provider。每 Key 本机代理设置会被拒绝。需要 Fetch Relay 时使用原有配置接口 `/api/settings/proxy`（`proxyMode: "fetch-relay"`），并将其作为承载上游凭证的受信服务管理。
 - 数据恢复使用 Cloudflare 的 Durable Object SQLite 恢复能力，不使用上游本地文件备份按钮。首次接入不自动导入已有桌面数据库；现有生产数据迁移应单独验证。
-- 管理认证额外有持久化的 IP 窗口限制（20 次/15 分钟），其他 API 为 240 次/分钟，再叠加上游自身限制。部署重启不会清空这层限制；共享出口的应用共享 IP 预算。
+- 管理身份由 Access 验证；普通 API 使用 Workers Rate Limiting Binding 和 DO 内存限流（240 次/分钟），不写 SQLite。DO 内存计数会随重建清空；共享出口的应用共享 IP 预算。Provider 自身的额度约束仍独立生效。
 - 未使用真实 Google/Groq/NVIDIA/Cloudflare 凭证执行生产验收。应在部署后各做一笔低额度的真实调用，再开放给实际应用。
 
 Cloudflare 官方参考：[Node HTTP/Express 接入](https://developers.cloudflare.com/workers/runtime-apis/nodejs/http/)、[SQLite Durable Object](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)、[Workers AI 绑定](https://developers.cloudflare.com/workers-ai/configuration/bindings/)。
@@ -105,3 +105,9 @@ Cloudflare 官方参考：[Node HTTP/Express 接入](https://developers.cloudfla
 架构决策和后续同步方法见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 后台退出按钮跳转到 `/cdn-cgi/access/logout`。更改登录邮箱、密码和访问权限请在 Access/身份提供商管理；本地注册、登录、重置与修改密码接口在 Workers 返回 `access_managed`。复制、导出 Provider 凭证使用 Access 验证，无本地密码步骤。旧账号数据不删除，但不能再通过本地密码登录 Cloudflare 后台。
+
+
+## SQL 资源优化与 Catalog 管理
+
+新功能的使用、MCP 身份验证、数据所有权和 SQL 对比测试见 [RESOURCE-CATALOG.md](RESOURCE-CATALOG.md)。
+管理地址：`https://llm.api.happyfirst.top/models/catalog`。升级现有 Worker 即可，无需删除 Worker 或数据库。

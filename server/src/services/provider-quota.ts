@@ -1,3 +1,4 @@
+import { runtimePolicy } from '../lib/runtime-policy.js';
 import crypto from 'crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { getDb } from '../db/index.js';
@@ -358,19 +359,22 @@ export function recordQuotaObservation(input: QuotaObservationInput): ProviderQu
   const updatedAt = nowSql;
 
   const prev = db.prepare(`
-    SELECT confidence, notes, source
+    SELECT *
       FROM provider_quota_state
      WHERE platform = ?
        AND key_id = ?
        AND quota_pool_key = ?
        AND metric = ?
-  `).get(platform, keyId, quotaPoolKey, metric) as { confidence: number; notes: string | null; source: QuotaObservationSource } | undefined;
+  `).get(platform, keyId, quotaPoolKey, metric) as { confidence: number; notes: string | null; source: QuotaObservationSource; limit_value: number | null; remaining_value: number | null; reset_at: string | null; observed_at: string; reset_strategy: string } | undefined;
 
   const nextConfidence = Math.max(prev?.confidence ?? 0, confidence);
   const nextNotes = notes ?? prev?.notes ?? null;
   const nextSource = pickBetterSource(prev?.source, source);
 
-  db.transaction(() => {
+  const sameReading = prev && (limitValue === null || limitValue === prev.limit_value) && (remainingValue === null || remainingValue === prev.remaining_value) && (resetAt === null || resetAt === prev.reset_at) && (resetStrategy === 'unknown' || resetStrategy === prev.reset_strategy) && nextConfidence === prev.confidence && nextNotes === prev.notes && nextSource === prev.source;
+  const recentReading = prev && Date.parse(observedAt) - Date.parse(prev.observed_at.replace(' ', 'T') + 'Z') < 5 * 60_000;
+  const stateChanged = !runtimePolicy.cloudflare || !sameReading || !recentReading || (statusCode ?? 0) >= 400;
+  if (stateChanged) db.transaction(() => {
     db.prepare(`
       INSERT INTO provider_quota_state (
         platform, key_id, quota_pool_key, metric, limit_value, remaining_value,
@@ -387,20 +391,14 @@ export function recordQuotaObservation(input: QuotaObservationInput): ProviderQu
         confidence = MAX(provider_quota_state.confidence, excluded.confidence),
         notes = COALESCE(excluded.notes, provider_quota_state.notes),
         observed_at = excluded.observed_at,
-        updated_at = datetime('now')
+        updated_at = datetime('now'), source = ?
     `).run(
-      platform, keyId, quotaPoolKey, metric, limitValue, remainingValue, resetAt, resetStrategy, source, nextConfidence, nextNotes, nowSql, updatedAt,
+      platform, keyId, quotaPoolKey, metric, limitValue, remainingValue, resetAt, resetStrategy, source, nextConfidence, nextNotes, nowSql, updatedAt, nextSource,
     );
 
-    db.prepare(`
-      UPDATE provider_quota_state
-         SET source = ?
-       WHERE platform = ?
-         AND key_id = ?
-         AND quota_pool_key = ?
-         AND metric = ?
-    `).run(nextSource, platform, keyId, quotaPoolKey, metric);
-
+    // Keep authoritative remaining quota exact; ordinary header observations
+    // need no duplicate audit row. Errors/reset/limit changes remain durable.
+    if (!runtimePolicy.cloudflare || (statusCode ?? 0) >= 400 || !prev || (limitValue !== null && limitValue !== prev.limit_value) || (resetAt !== null && resetAt !== prev.reset_at))
     db.prepare(`
       INSERT INTO provider_quota_observations (
         id, platform, key_id, provider_account_id, model_id, quota_pool_key, metric,
@@ -416,7 +414,7 @@ export function recordQuotaObservation(input: QuotaObservationInput): ProviderQu
 
   // The row just moved, so the memoised headroom for this platform is wrong —
   // drop it rather than let a 5s window hide a fresh 429 from the router.
-  invalidateKeyQuotaHeadroom(platform);
+  if (stateChanged) invalidateKeyQuotaHeadroom(platform);
 
   return {
     id,

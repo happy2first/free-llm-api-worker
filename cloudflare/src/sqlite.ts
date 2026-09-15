@@ -19,14 +19,19 @@ export function bindSql(sql: string, params: unknown[]): { sql: string; values: 
   return { sql: rewritten, values };
 }
 
-export function durableSqlite(storage: DurableObjectStorage): Db {
+export function durableSqlite(storage: DurableObjectStorage, measure?: (sql: string, read: number, written: number) => void): Db {
   const query = (sql: string, params: unknown[] = []) => {
     // DO SQLite has no TEMP database. This upstream migration creates and
     // drops its scratch tables inside one atomic transaction, so main-schema
     // tables have the same lifetime and rollback semantics here.
     sql = sql.replace(/^CREATE TEMP TABLE ("_endpoint_identity_[^"]+")/i, 'CREATE TABLE $1');
     const bound = bindSql(sql, params);
-    try { return storage.sql.exec(bound.sql, ...bound.values); }
+    try {
+      const cursor = storage.sql.exec(bound.sql, ...bound.values);
+      const rows = cursor.toArray();
+      measure?.(sql, cursor.rowsRead, cursor.rowsWritten);
+      return { toArray: () => rows, one: () => rows[0] };
+    }
     catch (error) { console.error('[sqlite] statement failed:', bound.sql.slice(0, 400)); throw error; }
   };
   return {

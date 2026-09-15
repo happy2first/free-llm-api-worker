@@ -1,3 +1,4 @@
+import CatalogPage from './pages/CatalogPage'
 import { useState, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -77,6 +78,7 @@ const navItems = [
 // the mobile submenu so Fusion/Embeddings/Image/Audio are discoverable without
 // first landing on the chat table.
 const modelItems = [
+  { to: '/models/catalog', labelKey: 'Catalog' },
   { to: '/models/chat', labelKey: 'models.chatModelsTab' },
   { to: '/models/embeddings', labelKey: 'models.embeddingsTab' },
   { to: '/models/image', labelKey: 'models.imageTab' },
@@ -264,7 +266,7 @@ function Navbar() {
                     <DropdownMenuContent align="start" className="w-44">
                       {menu.items.map((entry) => (
                         <DropdownMenuItem key={entry.to} onClick={() => navigate(entry.to)}>
-                          {t(entry.labelKey)}
+                          {entry.labelKey === 'Catalog' ? 'Catalog' : t(entry.labelKey)}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuContent>
@@ -335,7 +337,7 @@ function Navbar() {
                         <DropdownMenuSubContent>
                           {menu.items.map((entry) => (
                             <DropdownMenuItem key={entry.to} onClick={() => navigate(entry.to)}>
-                              {t(entry.labelKey)}
+                              {entry.labelKey === 'Catalog' ? 'Catalog' : t(entry.labelKey)}
                             </DropdownMenuItem>
                           ))}
                         </DropdownMenuSubContent>
@@ -447,6 +449,7 @@ function App() {
                     <Routes>
                       <Route path="/" element={<Navigate to="/models/chat" replace />} />
                       <Route path="/models" element={<Navigate to="/models/chat" replace />} />
+                      <Route path="/models/catalog" element={<CatalogPage />} />
                       <Route path="/models/chat" element={<FallbackPage />} />
                       <Route path="/models/chat/:id" element={<ModelDetailPage />} />
                       <Route path="/models/fusion" element={<FusionPage />} />

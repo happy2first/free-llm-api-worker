@@ -1,3 +1,5 @@
+import { configureRuntime, recentHealthyKeys } from '../../server/src/lib/runtime-policy.js';
+import { ResourceMetrics } from './telemetry.js';
 import { decodeJwt } from 'jose';
 import { accessGuard, applicationApi } from './access.js';
 import { DurableObject } from 'cloudflare:workers';
@@ -20,7 +22,7 @@ import { checkAllKeys } from '../../server/src/services/health.js';
 import { runCooldownProbePass } from '../../server/src/services/cooldown-probe.js';
 import { runCustomModelSync } from '../../server/src/services/custom-model-sync.js';
 import { pruneRequestAnalytics } from '../../server/src/services/request-retention.js';
-import { initAdmission, admit } from './security.js';
+import { Admission } from './security.js';
 import { durableSqlite } from './sqlite.js';
 import { NativeCloudflareProvider, NATIVE_AI_KEY, type AiBinding } from './ai.js';
 
@@ -31,7 +33,10 @@ export interface Env {
   ENCRYPTION_KEY: string;
   TEAM_DOMAIN: string;
   ACCESS_AUD: string;
+  REQUEST_ANALYTICS?: AnalyticsEngineDataset;
+  API_RATE_LIMITER?: RateLimit;
 }
+configureRuntime({ cloudflare: true });
 installLogRedaction();
 const OBJECT_NAME = 'primary';
 const PORT = 8788;
@@ -54,6 +59,7 @@ const apiPath = (path: string) => /^\/(api|v1|v1beta|mcp)(\/|$)/.test(path) || [
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    if (new URL(request.url).pathname === '/livez') return Response.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
     const denied = await accessGuard(request, env);
     if (denied) return denied;
     const url = new URL(request.url);
@@ -66,6 +72,10 @@ export default {
       if (headers.get('content-type')?.includes('text/html')) headers.set('Cache-Control', 'no-cache');
       return new Response(asset.body, { status: asset.status, headers });
     }
+    if (env.API_RATE_LIMITER) {
+      const { success } = await env.API_RATE_LIMITER.limit({ key: request.headers.get('cf-connecting-ip') ?? 'unknown' });
+      if (!success) return Response.json({ error: { type: 'rate_limit_error', message: 'Too many requests' } }, { status: 429, headers: { 'Retry-After': '60' } });
+    }
     const headers = new Headers(request.headers);
     // Replace untrusted forwarding headers at the only public entrypoint.
     headers.set('x-forwarded-for', request.headers.get('cf-connecting-ip') ?? '192.0.2.1');
@@ -77,8 +87,14 @@ export default {
 
 export class Gateway extends DurableObject<Env> {
   private ready: Promise<void>;
+  private admission = new Admission();
+  private metrics: ResourceMetrics;
+  private lastPrune = 0;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.metrics = new ResourceMetrics(env.REQUEST_ANALYTICS);
+    configureRuntime({ cloudflare: true, emit: this.metrics.emit });
+    recentHealthyKeys.clear();
     // Upstream has process-wide caches. This is a single-admin installation,
     // intentionally one named object. Never create a DB per API key or caller.
     if (!ctx.id.equals(env.GATEWAY.idFromName(OBJECT_NAME))) throw new Error('Only the primary gateway object is supported');
@@ -86,11 +102,21 @@ export class Gateway extends DurableObject<Env> {
       if (!/^[a-fA-F0-9]{64}$/.test(env.ENCRYPTION_KEY ?? '')) throw new Error('Set ENCRYPTION_KEY to 64 hex characters');
       process.env.ENCRYPTION_KEY = env.ENCRYPTION_KEY;
       process.env.IMAGE_NORMALIZE = 'off';
-      bindDb(durableSqlite(ctx.storage));
+      bindDb(durableSqlite(ctx.storage, this.metrics.recordSql));
       runMigrationsSync(getDb());
-      initAdmission(getDb());
+      getDb().exec(`CREATE TABLE IF NOT EXISTS cloudflare_routing_events (
+        platform TEXT NOT NULL, model_id TEXT NOT NULL, key_id INTEGER,
+        input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+        latency_ms INTEGER NOT NULL, ttfb_ms INTEGER, request_type TEXT NOT NULL DEFAULT 'chat',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      ); CREATE INDEX IF NOT EXISTS idx_cf_routing_time ON cloudflare_routing_events(created_at);`);
       initEncryptionKey(getDb());
-      reapplyCachedCatalog();
+      // Migrations are tracked; reapply only when that set changes, not every eviction.
+      const migrationStamp = JSON.stringify(getDb().prepare('SELECT * FROM migrations').all());
+      if (getSetting('cloudflare_catalog_migration_stamp') !== migrationStamp) {
+        reapplyCachedCatalog();
+        setSetting('cloudflare_catalog_migration_stamp', migrationStamp);
+      }
       restoreProxySettings();
       loadCacheFromDb();
       cleanupExpiredCooldowns();
@@ -133,6 +159,7 @@ export class Gateway extends DurableObject<Env> {
         next();
       });
       const config = { ...loadConfig(), serveStaticAssets: false, trustProxy: true };
+      app.get('/api/runtime/resources', (_req, res) => res.json(this.metrics.snapshot()));
       app.use(createApp(config));
       if (await ctx.storage.getAlarm() === null) await ctx.storage.setAlarm(Date.now() + 10_000);
       gatewayApp = app;
@@ -142,10 +169,8 @@ export class Gateway extends DurableObject<Env> {
     const denied = await accessGuard(request, this.env);
     if (denied) return denied;
     await this.ready;
-    const path = new URL(request.url).pathname;
-    const isAuth = /^\/api\/auth\/(login|setup|reset)/.test(path) && request.method === 'POST';
-    if (!admit(getDb(), request.headers.get('x-forwarded-for') ?? 'unknown', isAuth)) {
-      return Response.json({ error: { message: 'Too many requests', type: 'rate_limit_error' } }, { status: 429, headers: { 'Retry-After': isAuth ? '900' : '60' } });
+    if (!this.admission.admit(request.headers.get('x-forwarded-for') ?? 'unknown')) {
+      return Response.json({ error: { message: 'Too many requests', type: 'rate_limit_error' } }, { status: 429, headers: { 'Retry-After': '60' } });
     }
     const client = new AbortController();
     const abort = () => client.abort(new DOMException('Client disconnected', 'AbortError'));
@@ -208,8 +233,12 @@ export class Gateway extends DurableObject<Env> {
       catch { console.error(`[cloudflare] ${name} maintenance failed`); }
     }
     cleanupExpiredCooldowns();
-    pruneRequestAnalytics({ force: true });
-    getDb().prepare('DELETE FROM cloudflare_admission WHERE expires_ms < ?').run(Date.now());
+    if (Date.now() - this.lastPrune >= 3600_000) {
+      pruneRequestAnalytics({ force: true });
+      getDb().prepare("DELETE FROM cloudflare_routing_events WHERE created_at < MIN(datetime('now', 'start of month'), datetime('now', '-7 days'))").run();
+      this.lastPrune = Date.now();
+      console.info('[cloudflare-resources]', JSON.stringify(this.metrics.snapshot().sql));
+    }
     getDb().prepare('DELETE FROM sessions WHERE expires_at_ms < ?').run(Date.now());
   }
 }

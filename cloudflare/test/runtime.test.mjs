@@ -28,6 +28,7 @@ const options = (persist) => ({
       if (url.pathname.endsWith('/models')) return Response.json({ data: [{ id: 'llama-3.3-70b-versatile' }] });
       return Response.json({ id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: 'llama-3.3-70b-versatile', choices: [{ index: 0, message: { role: 'assistant', content: 'groq reply' }, finish_reason: 'stop' }], usage: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 } });
     }
+    if (url.hostname === 'api.freellmapi.co') return Response.json({ version: '2099.01.01', generatedAt: '2099-01-01', tier: 'monthly', models: [], quirks: [] }, { headers: { 'x-catalog-signature': 'AA==' } });
     throw new Error(`Unexpected outbound host in test: ${url.hostname}`);
   },
   serviceBindings: { ASSETS: () => new Response('dashboard asset'), AI: () => new Response('{}') },
@@ -113,6 +114,9 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
     assert.equal(recoveredBody._routed_via.model, fallbackModel.modelId);
     const probe = await mf.getDurableObjectNamespace('SQL_PROBE');
     const probeResult = await (await probe.get(probe.idFromName('test')).fetch('https://sql.test')).json();
+    assert.equal(probeResult.admitted, 240);
+    assert.equal(probeResult.resetAdmission, true);
+    assert.deepEqual(probeResult.points, [{ indexes: ['cloudflare'], blobs: ['request','cloudflare','test','success',''], doubles: [2,3,5,0] }]);
     assert.equal(probeResult.validTool.ok, true);
     assert.equal(probeResult.invalidTool.ok, false);
     assert.deepEqual(probeResult.rows.map(row => row.id), [1, 3]);
@@ -150,4 +154,110 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
     await mf.dispose();
     await rm(persist, { recursive: true, force: true });
   }
+});
+
+test('catalog ownership, explicit conflicts, MCP authorization, restoration and SQL budgets', { timeout: 120_000 }, async () => {
+  const persist = await mkdtemp(join(tmpdir(), 'freeapi-catalog-'));
+  const mf = new Miniflare({ ...convertV4MiniflareOptions(options(persist)), resourcePersistencePath: persist, isolatedResourcePersistencePath: persist });
+  const request = (path, body) => mf.dispatchFetch(`https://gateway.test${path}`, { method: body ? 'POST' : 'GET', headers: { 'Cf-Access-Jwt-Assertion': accessToken, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  try {
+    const live = await mf.dispatchFetch('https://gateway.test/livez');
+    assert.equal(live.status, 200, 'liveness needs no Access or DO');
+    const catalog = await (await request('/api/catalog')).json();
+    assert.ok(catalog.records.length > 25);
+    assert.equal((await mf.dispatchFetch('https://gateway.test/api/catalog/mcp', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer downstream-key' } })).status, 403);
+    const ns = await mf.getDurableObjectNamespace('GATEWAY');
+    const stub = ns.get(ns.idFromName('primary'));
+    const count = async () => (await stub.fetch('https://test/__test/sql-counts')).json();
+    const profile = await (await request('/api/client-profiles', { name: 'SQL budget test' })).json();
+    const model = catalog.records.find(r => r.kind === 'chat' && r.platform === 'cloudflare' && r.values.enabled);
+    const before = await count();
+    const metricsBefore = await (await request('/api/runtime/resources')).json();
+    const response = await mf.dispatchFetch('https://gateway.test/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.key}` }, body: JSON.stringify({ model: model.modelId, messages: [{ role: 'user', content: 'Budget' }] }) });
+    assert.equal(response.status, 200); await response.text();
+    const after = await count();
+    for (const table of ['requests','request_hourly','request_attempts','server_logs']) assert.equal(after[table], before[table], `success makes no ${table} inserts`);
+    assert.equal(after.cloudflare_routing_events, before.cloudflare_routing_events + 1);
+    const metricsAfter = await (await request('/api/runtime/resources')).json();
+    const writes = (m, table) => m.sql.filter(r => r.source.endsWith(` ${table}`)).reduce((n,r) => n + r.written, 0);
+    for (const table of ['settings','requests','request_hourly','request_attempts','server_logs','cloudflare_admission']) assert.equal(writes(metricsAfter, table), writes(metricsBefore, table), `success makes no ${table} writes`);
+    assert.ok(metricsAfter.recent.some(e => e.type === 'request' && e.status === 'success'));
+
+    const totals = async () => {
+      const m = await (await request('/api/runtime/resources')).json();
+      return m.sql.reduce((v,r) => ({ written: v.written + r.written, read: v.read + r.read }), { written: 0, read: 0 });
+    };
+    const baselineStart = await totals();
+    await stub.fetch('https://test/__test/log-batch', { method: 'POST', body: JSON.stringify({ cloudflare: false }) });
+    const baselineEnd = await totals();
+    await stub.fetch('https://test/__test/log-batch', { method: 'POST', body: JSON.stringify({ cloudflare: true }) });
+    const optimizedEnd = await totals();
+    const baselineWrites = baselineEnd.written - baselineStart.written;
+    const optimizedWrites = optimizedEnd.written - baselineEnd.written;
+    assert.ok(optimizedWrites < baselineWrites / 2, 'request logging writes reduced by more than half');
+    console.log('SQL logging benchmark (10 successes)', JSON.stringify({ baselineWrites, optimizedWrites, baselineReads: baselineEnd.read - baselineStart.read, optimizedReads: optimizedEnd.read - baselineEnd.read }));
+
+    const fixtures = [
+      { kind: 'chat', platform: 'cloudflare', modelId: 'test-chat', values: { display_name: 'Chat', context_window: 4096 } },
+      { kind: 'embedding', platform: 'google', modelId: 'test-embed', values: { display_name: 'Embed', family: 'test', dimensions: 128 } },
+      { kind: 'media', platform: 'cloudflare', modelId: 'test-image', values: { display_name: 'Image', modality: 'image' } },
+      { kind: 'quirk', platform: '', modelId: 'test-quirk', values: { title: 'Quirk', body: 'Manual', severity: 'warning', targets: [{ platform: 'cloudflare', model_glob: '*' }] } },
+    ];
+    const created = [];
+    for (const f of fixtures) {
+      const res = await request('/api/catalog/records/create', f); assert.equal(res.status, 200, await res.clone().text());
+      const r = (await res.json()).record; assert.equal(r.source, 'user'); created.push(r);
+      const conflict = await request('/api/catalog/records/update', { ...r, values: { ...r.values, ...(r.kind === 'quirk' ? { title: 'Changed' } : { display_name: 'Changed' }) } });
+      assert.equal(conflict.status, 409); assert.equal((await conflict.json()).existing.revision, r.revision);
+      const skip = await request('/api/catalog/records/update', { ...r, conflict: 'skip' }); assert.equal((await skip.json()).skipped, true);
+    }
+    const mcp = async (name, args) => (await (await request('/api/catalog/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).json()).result;
+    for (const r of created) {
+      const conflict = await mcp('catalog_update', r); assert.equal(conflict.isError, true);
+      const result = await mcp('catalog_update', { ...r, conflict: 'replace', expectedRevision: r.revision, origin: 'provider_docs', extensions: { requiresCreditCard: false, evidenceLinks: ['https://example.com/docs'] } });
+      assert.equal(JSON.parse(result.content[0].text).record.source, 'ai');
+    }
+    const chat = { platform: 'cloudflare', modelId: 'test-chat', displayName: 'OFFICIAL', intelligenceRank: 1, speedRank: 1, sizeLabel: '', limits: { rpm: 5, rpd: null, tpm: null, tpd: null }, monthlyTokenBudget: '', contextWindow: 100, enabled: true, supportsVision: false, supportsTools: true };
+    const doc = { version: '2026.09.15', generatedAt: '2026-09-15T00:00:00Z', tier: 'monthly', models: [chat, { ...chat, modelId: 'test-image', modality: 'image' }], embeddings: [{ platform: 'google', modelId: 'test-embed', displayName: 'OFFICIAL', family: 'test', dimensions: 128, maxInputTokens: 100, priority: 1, enabled: true, quotaLabel: '' }], quirks: [{ slug: 'test-quirk', title: 'OFFICIAL', body: 'signed', severity: 'info', targets: [] }] };
+    const sync = async d => { const res = await stub.fetch('https://test/__test/catalog-sync', { method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify(d) }); assert.equal(res.status, 200, await res.clone().text()); };
+    await sync(doc);
+    // The same protection applies to manual ownership, not only AI ownership.
+    for (const r of created) {
+      const current = JSON.parse((await mcp('catalog_read', r)).content[0].text);
+      const manual = await request('/api/catalog/records/update', { ...current, conflict: 'replace', expectedRevision: current.revision });
+      assert.equal(manual.status, 200);
+    }
+    await sync(doc);
+    for (const r of created) {
+      const current = JSON.parse((await mcp('catalog_read', r)).content[0].text);
+      assert.equal(current.source, 'user');
+      assert.notEqual(current.values.display_name ?? current.values.title, 'OFFICIAL');
+      await mcp('catalog_update', { ...current, conflict: 'replace', expectedRevision: current.revision });
+    }
+    for (const r of created) {
+      const current = JSON.parse((await mcp('catalog_read', r)).content[0].text);
+      assert.equal(current.source, 'ai'); assert.notEqual(current.values.display_name ?? current.values.title, 'OFFICIAL');
+    }
+    await sync({ ...doc, models: [], embeddings: [{ ...doc.embeddings[0], modelId: 'another-embed' }], quirks: [] });
+    for (const r of created) assert.equal(JSON.parse((await mcp('catalog_read', r)).content[0].text).source, 'ai', 'monthly prune preserves AI ownership');
+    await sync(doc);
+    for (const r of created) {
+      const current = JSON.parse((await mcp('catalog_read', r)).content[0].text);
+      const restored = await request('/api/catalog/records/restore', { ...r, conflict: 'replace', expectedRevision: current.revision });
+      assert.equal(restored.status, 200, await restored.clone().text());
+      const official = (await restored.json()).record;
+      assert.equal(official.source, 'freellm'); assert.equal(official.values.display_name ?? official.values.title, 'OFFICIAL');
+      // Stale approvals cannot overwrite a changed row.
+      assert.equal((await request('/api/catalog/records/update', { ...r, conflict: 'replace', expectedRevision: current.revision })).status, 409);
+      const deleted = await mcp('catalog_delete', { ...r, conflict: 'replace', expectedRevision: official.revision }); assert.notEqual(deleted.isError, true);
+    }
+    await sync(doc);
+    for (const r of created) assert.equal(JSON.parse((await mcp('catalog_read', r)).content[0].text), null, 'deleted local records cannot resurrect');
+    const badSync = await (await request('/api/catalog/sync', {})).json();
+    assert.equal(badSync.ok, false);
+    assert.match(badSync.detail, /signature/i);
+    assert.deepEqual(badSync.diff, { added: 0, updated: 0, removed: 0 });
+    // Restore a tombstone explicitly as well.
+    const restored = await request('/api/catalog/records/restore', { ...created[0], conflict: 'replace' }); assert.equal(restored.status, 200, await restored.clone().text());
+  } finally { await mf.dispose(); await rm(persist, { recursive: true, force: true }); }
 });

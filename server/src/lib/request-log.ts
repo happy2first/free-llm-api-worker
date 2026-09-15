@@ -1,7 +1,8 @@
+import { runtimePolicy } from './runtime-policy.js';
 import { getDb } from '../db/index.js';
 import { pruneRequestAnalytics } from '../services/request-retention.js';
 import { getClientContext } from './client-context.js';
-import { noteRequestRowId, type RequestTrace } from './attempt-trace.js';
+import { getRequestTrace, noteRequestRowId, type RequestTrace } from './attempt-trace.js';
 
 type LogTx = ReturnType<typeof getDb>;
 
@@ -78,22 +79,35 @@ export function logRequest(
   // without a migration. NULL for call sites that pass no caller — notably
   // the shared fallback loop's 'canceled' row, which is surface-agnostic.
   caller: string | null = null,
+  requestType = 'chat',
 ) {
   try {
     const db = getDb();
+    if (runtimePolicy.cloudflare) {
+      runtimePolicy.emit?.({ type: 'request', platform, model: modelId, status, requestType, fallback: getRequestTrace()?.records.length ?? 0, input: inputTokens, output: outputTokens, latency: latencyMs });
+      if (status === 'success') {
+        // One compact core record retains EXACT existing score/monthly-budget inputs.
+        // Analytics and successful attempts do not write the indexed requests table.
+        db.prepare(`INSERT INTO cloudflare_routing_events (platform, model_id, key_id, input_tokens, output_tokens, latency_ms, ttfb_ms, request_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(platform, modelId, keyId, inputTokens, outputTokens, latencyMs, ttfbMs, requestType);
+        return;
+      }
+    }
     // Caller identity from the request-scoped context (set by the express
     // middleware); null when logging happens outside an HTTP request.
     const client = getClientContext();
     const tx = db.transaction(() => {
       const insert = db.prepare(`
-        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model, served_model, client_ip, client_user_agent, client_agent, caller)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel, servedModel, client.ip, client.userAgent, client.agent, caller);
+        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model, served_model, client_ip, client_user_agent, client_agent, caller, request_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel, servedModel, client.ip, client.userAgent, client.agent, caller, requestType);
 
       // Report the row id back to the fallback loop's attempt trace (if one is
       // active): the LAST id noted during a loop run is the terminal row the
       // per-attempt batch is keyed to. No-op outside a fallback-loop run.
       if (insert.lastInsertRowid != null) noteRequestRowId(insert.lastInsertRowid);
+
+      if (runtimePolicy.cloudflare) return;
 
       const createdAt = db.prepare(`SELECT created_at FROM requests WHERE id = ?`).get(insert.lastInsertRowid) as { created_at: string } | undefined;
       const hour = hourKey(createdAt?.created_at ?? new Date().toISOString().slice(0, 19).replace('T', ' '));
@@ -120,7 +134,7 @@ export function logRequest(
     });
     tx();
 
-    pruneRequestAnalytics({ db });
+    if (!runtimePolicy.cloudflare) pruneRequestAnalytics({ db });
   } catch (e) {
     console.error('Failed to log request:', e);
   }
@@ -136,6 +150,9 @@ export function logRequest(
 // now only the loop-top stop paths, whose failed attempts each wrote their own
 // row already.
 export function persistRequestAttempts(trace: RequestTrace): void {
+  if (runtimePolicy.cloudflare) {
+    for (const r of trace.records) runtimePolicy.emit?.({ type: 'attempt', platform: r.platform, model: r.modelId, status: r.outcome, latency: r.durationMs, fallback: r.ordinal > 0 ? 1 : 0 });
+  }
   if (trace.records.length === 0 || trace.lastRequestRowId == null) return;
   try {
     const db = getDb();
@@ -145,6 +162,7 @@ export function persistRequestAttempts(trace: RequestTrace): void {
     `);
     const tx = db.transaction(() => {
       for (const r of trace.records) {
+        if (runtimePolicy.cloudflare && r.outcome === 'ok') continue;
         insert.run(trace.lastRequestRowId, r.ordinal, r.platform, r.modelId, r.keyOrdinal, r.keyLabel, r.outcome, r.startOffsetMs, r.durationMs, r.errorSummary);
       }
     });

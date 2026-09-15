@@ -1,3 +1,4 @@
+import { catalogRouter } from './routes/catalog.js';
 import express from 'express';
 import compression from 'compression';
 import cors from 'cors';
@@ -246,6 +247,7 @@ export function createApp(config?: Config) {
   // /v1 key must not open them.
   app.use('/api/logs', requireAuth, logsRouter);
   app.use('/api/models', requireAuth, modelsRouter);
+  app.use('/api/catalog', requireAuth, catalogRouter);
   app.use('/api/profiles', requireAuth, profilesRouter);
   app.use('/api/fallback', requireAuth, fallbackRouter);
   app.use('/api/embeddings', requireAuth, embeddingsRouter);

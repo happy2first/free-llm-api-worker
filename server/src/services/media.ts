@@ -1,3 +1,5 @@
+import { runtimePolicy } from '../lib/runtime-policy.js';
+import { logRequest } from '../lib/request-log.js';
 // Generative-media routing (image, video, and audio/TTS).
 //
 // Self-contained, exactly like embeddings: media models live in their OWN
@@ -724,6 +726,7 @@ function resolveMediaChain(model: string | undefined, modality: MediaModality): 
 
 function logMedia(row: Pick<MediaModelRow, 'platform' | 'model_id' | 'modality'>, keyId: number | null, status: 'success' | 'error', latencyMs: number, error: string | null): void {
   try {
+    if (runtimePolicy.cloudflare) { logRequest(row.platform, row.model_id, keyId, status, 0, 0, latencyMs, error, null, null, null, null, row.modality); return; }
     const client = getClientContext();
     getDb()
       .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip, client_user_agent, client_agent)

@@ -1,3 +1,9 @@
+import { runtimePolicy } from '../../server/src/lib/runtime-policy.js';
+import { logRequest } from '../../server/src/lib/request-log.js';
+import { Admission } from '../src/security.js';
+import { ResourceMetrics } from '../src/telemetry.js';
+import { getDb, setSetting } from '../../server/src/db/index.js';
+import { applyCatalog } from '../../server/src/services/catalog-sync.js';
 import { DurableObject } from 'cloudflare:workers';
 import { validateToolArguments } from '../../server/src/lib/tool-validate.js';
 import { durableSqlite, bindSql } from '../src/sqlite.js';
@@ -35,7 +41,12 @@ export class SqlProbe extends DurableObject {
       db.prepare('INSERT INTO test VALUES (?, ?)').run(3, 'outer');
       try { db.transaction(() => { db.prepare('INSERT INTO test VALUES (?, ?)').run(4, 'inner rollback'); throw new Error('inner'); })(); } catch {}
     })();
-    return Response.json({ validTool: validateToolArguments('test', '{\"count\":2}', { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }), invalidTool: validateToolArguments('test', '{\"count\":\"wrong\"}', { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }), rows: db.prepare('SELECT * FROM test ORDER BY id').all(), bound: bindSql("SELECT '@literal', @value -- @comment", [{ value: 7 }]) });
+    const admission = new Admission();
+    const admitted = Array.from({ length: 241 }, () => admission.admit('test-ip', 0)).filter(Boolean).length;
+    const points: unknown[] = [];
+    const metrics = new ResourceMetrics({ writeDataPoint: point => { points.push(point); } });
+    metrics.emit({ type: 'request', platform: 'cloudflare', model: 'test', status: 'success', input: 2, output: 3, latency: 5 });
+    return Response.json({ admitted, resetAdmission: admission.admit('test-ip', 60001), points, validTool: validateToolArguments('test', '{\"count\":2}', { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }), invalidTool: validateToolArguments('test', '{\"count\":\"wrong\"}', { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }), rows: db.prepare('SELECT * FROM test ORDER BY id').all(), bound: bindSql("SELECT '@literal', @value -- @comment", [{ value: 7 }]) });
   }
 }
 
@@ -54,6 +65,27 @@ export class Gateway extends ProductionGateway {
       await reader.cancel();
       await new Promise(resolve => setTimeout(resolve, 20));
       return Response.json({ canceled: canceledAiStreams > before });
+    }
+    if (new URL(request.url).pathname === '/__test/log-batch') {
+      const body = await request.json() as any;
+      const previous = runtimePolicy.cloudflare;
+      try {
+        runtimePolicy.cloudflare = body.cloudflare;
+        for (let i = 0; i < 10; i++) logRequest('cloudflare', 'budget-probe', null, 'success', 1, 1, 5, null);
+      } finally { runtimePolicy.cloudflare = previous; }
+      return Response.json({ ok: true });
+    }
+    if (new URL(request.url).pathname === '/__test/catalog-sync') {
+      const auth = await super.fetch(new Request('https://test/api/auth/status', { headers: request.headers }));
+      if (!auth.ok) return auth;
+      const doc = await request.json() as any;
+      const counts = applyCatalog(getDb(), doc);
+      setSetting('catalog_applied_json', JSON.stringify(doc));
+      return Response.json(counts);
+    }
+    if (new URL(request.url).pathname === '/__test/sql-counts') {
+      const names = ['requests','request_hourly','request_attempts','server_logs','cloudflare_routing_events'];
+      return Response.json(Object.fromEntries(names.map(name => [name, this.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM ${name}`).one().n])));
     }
     if (new URL(request.url).pathname === '/__test/generation') return Response.json({ generation: this.generation });
     if (new URL(request.url).pathname === '/__test/abort') this.ctx.abort('Test gateway reconstruction');
