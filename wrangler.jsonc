@@ -52,10 +52,8 @@
       }
     }
   ],
-  "analytics_engine_datasets": [
-    {
-      "binding": "REQUEST_ANALYTICS",
-      "dataset": "freellm_requests"
-    }
-  ]
+  // Optional: enable Analytics Engine in your Cloudflare account BEFORE adding
+  // REQUEST_ANALYTICS. Otherwise Cloudflare rejects deployment (Analytics Engine not enabled).
+  // See cloudflare/RESOURCE-CATALOG.md. Without it, recent telemetry stays in memory.
+  "analytics_engine_datasets": []
 }
