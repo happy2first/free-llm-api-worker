@@ -1,3 +1,4 @@
+import { runtimePolicy } from '../lib/runtime-policy.js';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { getDb, getUnifiedApiKey, getSetting } from '../db/index.js';
@@ -149,6 +150,7 @@ function usageSummary(args: Record<string, unknown>): unknown {
     GROUP BY platform, model_id ORDER BY requests DESC LIMIT 5
   `).all(since) as Array<{ platform: string; model_id: string; requests: number; successes: number }>;
   return {
+    ...(runtimePolicy.cloudflare ? { analytics_backend: 'analytics_engine', partial: true, note: 'SQLite analytics contain historical records and exceptions only; use Analytics Engine for complete success totals.' } : {}),
     range,
     requests: totals.requests,
     // Over success+error only: 'canceled' rows (#752) are neither.

@@ -1,3 +1,4 @@
+import { requestRelation } from '../lib/runtime-policy.js';
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { getProvider, hasProvider, resolveProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
@@ -784,7 +785,7 @@ export function refreshStatsCache(db: Db, force = false): void {
       SUM(CASE WHEN status = 'success' AND ttfb_ms IS NOT NULL THEN 1 ELSE 0 END) AS succ_ttfb_cnt,
       SUM(CASE WHEN ${IS_TIMEOUT_SQL} THEN 1 ELSE 0 END) AS timeouts,
       SUM(CASE WHEN ${IS_TIMEOUT_SQL} THEN MIN(MAX(latency_ms, 0), ${TIMEOUT_LATENCY_CAP_MS}) ELSE 0 END) AS timeout_lat
-    FROM requests
+    FROM ${requestRelation()}
     WHERE created_at >= ? AND status <> 'canceled'
     GROUP BY platform, model_id, key_id, age_days
   `).all(since) as Array<{
@@ -841,7 +842,7 @@ export function refreshStatsCache(db: Db, force = false): void {
   // Calendar-month token usage per model, for the headroom guardrail.
   const usageRows = db.prepare(`
     SELECT platform, model_id, key_id, COALESCE(SUM(input_tokens + output_tokens), 0) AS used
-    FROM requests
+    FROM ${requestRelation()}
     WHERE created_at >= datetime('now', 'start of month')
       AND request_type = 'chat'
     GROUP BY platform, model_id, key_id

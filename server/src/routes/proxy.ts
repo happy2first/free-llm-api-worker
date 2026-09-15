@@ -1,3 +1,4 @@
+import { onClientDisconnect } from '../lib/client-disconnect.js';
 import crypto from 'crypto';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
@@ -768,7 +769,7 @@ proxyRouter.post('/videos/generations', async (req: Request, res: Response) => {
   // nobody is waiting for. 'close' also fires on normal completion, which
   // writableEnded distinguishes.
   const clientAbort = new AbortController();
-  res.on('close', () => {
+  onClientDisconnect(res, () => {
     if (!res.writableEnded) clientAbort.abort();
   });
   try {
@@ -1141,7 +1142,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   // when the wall-clock retry budget expires mid-attempt, canceling the
   // in-flight upstream instead of waiting for a stalled attempt to time out.
   const hedgeAbort = new AbortController();
-  res.on('close', () => {
+  onClientDisconnect(res, () => {
     if (!res.writableEnded) {
       clientGone = true;
       clientAbort.abort(newClientAbortError());
@@ -2052,7 +2053,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // when the wall-clock retry budget expires mid-attempt, canceling the
   // in-flight upstream instead of waiting for a stalled attempt to time out.
   const hedgeAbort = new AbortController();
-  res.on('close', () => {
+  onClientDisconnect(res, () => {
     if (!res.writableEnded) {
       clientGone = true;
       clientAbort.abort(newClientAbortError());

@@ -1,3 +1,4 @@
+import { runtimePolicy, recentHealthyKeys } from '../lib/runtime-policy.js';
 import { getDb } from '../db/index.js';
 import { resolveProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
@@ -112,10 +113,12 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
 
     const status: KeyStatus = isValid ? 'healthy' : 'invalid';
 
+    if (!runtimePolicy.cloudflare || row.status !== status || row.last_health_error !== lastError)
     db.prepare("UPDATE api_keys SET status = ?, last_health_error = ?, last_checked_at = datetime('now') WHERE id = ?")
       .run(status, lastError, keyId);
 
     if (isValid) {
+      if (runtimePolicy.cloudflare) recentHealthyKeys.set(keyId, Date.now());
       failureCount.delete(keyId);
     } else {
       providerLog(
@@ -149,6 +152,7 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
     // every key on that provider out of rotation at once. Record the diagnostic
     // and the timestamp; leave the verdict to a probe that actually reached the
     // provider. Confirmed 401/403 (the isValid=false path above) still demotes.
+    if (!runtimePolicy.cloudflare || row.last_health_error !== lastError)
     db.prepare("UPDATE api_keys SET last_health_error = ?, last_checked_at = datetime('now') WHERE id = ?")
       .run(lastError, keyId);
     return row.status as KeyStatus;
@@ -202,6 +206,7 @@ export async function probeKeyValidity(keyId: number): Promise<KeyProbeOutcome> 
  * confirmed the credential is bad, and only a real validateKey pass clears that.
  */
 export function markKeyHealthyFromRequest(keyId: number): void {
+  if (runtimePolicy.cloudflare) recentHealthyKeys.set(keyId, Date.now());
   try {
     getDb()
       .prepare("UPDATE api_keys SET status = 'healthy', last_health_error = NULL WHERE id = ? AND status = 'error'")
@@ -317,6 +322,7 @@ async function runHealthPass(opts: HealthPassOptions): Promise<HealthPassResult>
     // (the router writes that status, and last_checked_at with it), so it is
     // never skipped — it is the one key whose verdict is worth re-asking for.
     if (row.status === 'error') return true;
+    if (runtimePolicy.cloudflare && row.status === 'healthy' && Date.now() - (recentHealthyKeys.get(row.id) ?? 0) < 30 * 60_000) { skippedKeyIds.push(row.id); return false; }
     if (row.age_ms !== null && row.age_ms < RECENT_CHECK_SKIP_MS) {
       skippedKeyIds.push(row.id);
       return false;

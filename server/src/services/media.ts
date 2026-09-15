@@ -1,3 +1,5 @@
+import { runtimePolicy } from '../lib/runtime-policy.js';
+import { logRequest } from '../lib/request-log.js';
 // Generative-media routing (image, video, and audio/TTS).
 //
 // Self-contained, exactly like embeddings: media models live in their OWN
@@ -724,6 +726,7 @@ function resolveMediaChain(model: string | undefined, modality: MediaModality): 
 
 function logMedia(row: Pick<MediaModelRow, 'platform' | 'model_id' | 'modality'>, keyId: number | null, status: 'success' | 'error', latencyMs: number, error: string | null): void {
   try {
+    if (runtimePolicy.cloudflare) { logRequest(row.platform, row.model_id, keyId, status, 0, 0, latencyMs, error, null, null, null, null, row.modality); return; }
     const client = getClientContext();
     getDb()
       .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip, client_user_agent, client_agent)
@@ -959,7 +962,7 @@ async function callTranscriptionProvider(
       // only the base URL and the optional key differ.
       if (!credential.baseUrl) throw new MediaError('custom transcription provider is missing base_url', 500);
       const form = new FormData();
-      form.append('file', new Blob([p.file], { type: p.mimeType || 'application/octet-stream' }), p.filename);
+      form.append('file', new Blob([new Uint8Array(p.file)], { type: p.mimeType || 'application/octet-stream' }), p.filename);
       form.append('model', m.modelId);
       if (p.language) form.append('language', p.language);
       if (p.prompt) form.append('prompt', p.prompt);
@@ -982,7 +985,7 @@ async function callTranscriptionProvider(
       // Groq's OpenAI-compatible audio endpoint takes multipart form data.
       // Never set Content-Type by hand — FormData supplies the boundary.
       const form = new FormData();
-      form.append('file', new Blob([p.file], { type: p.mimeType || 'application/octet-stream' }), p.filename);
+      form.append('file', new Blob([new Uint8Array(p.file)], { type: p.mimeType || 'application/octet-stream' }), p.filename);
       form.append('model', m.modelId);
       if (p.language) form.append('language', p.language);
       if (p.prompt) form.append('prompt', p.prompt);
@@ -1015,7 +1018,7 @@ async function callTranscriptionProvider(
         : {
             method: 'POST',
             headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${token}` },
-            body: p.file,
+            body: new Uint8Array(p.file),
           };
       const r = await mediaFetch(url, 'cloudflare', 'transcription', init);
       const j = (await r.json()) as {

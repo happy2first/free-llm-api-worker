@@ -27,7 +27,7 @@ export class CloudflareProvider extends BaseProvider {
   readonly platform = 'cloudflare' as const;
   readonly name = 'Cloudflare Workers AI';
 
-  private timeoutFor(modelId: string, override?: number): number {
+  protected timeoutFor(modelId: string, override?: number): number {
     if (override !== undefined) return override;
     if (CHAT_TIMEOUT_MS <= 0) return CHAT_TIMEOUT_MS;
     return modelId === '@cf/zai-org/glm-4.7-flash'

@@ -122,6 +122,7 @@ describe('migration round trip', () => {
         ANALYTICS_LATENCY_PERCENTILE_INDEX_FILENAME,
         MCP_ENABLED_DEFAULT_FILENAME,
         RESPONSE_CACHE_FILENAME,
+        '20260915_000001_catalog_management.ts',
       ]);
     } finally {
       db.close();

@@ -76,7 +76,7 @@ export function isCatalogManagedModel(row: { platform: string; key_id?: number |
   // `source` is the authoritative provenance (models.source, 'catalog'|'user');
   // callers that select it get an exact answer. The platform/key_id fallback
   // covers callers that don't have the column in hand.
-  if (row.source === 'user') return false;
+  if (row.source === 'user' || row.source === 'ai') return false;
   return row.platform !== 'custom' && row.key_id == null;
 }
 
@@ -302,14 +302,14 @@ export function deleteTombstonedCatalogModels(db: Db): number {
       FROM models m
       JOIN catalog_model_tombstones t
         ON t.kind = 'chat' AND t.platform = m.platform AND t.model_id = m.model_id
-     WHERE t.source = 'user' AND m.platform != 'custom' AND m.key_id IS NULL AND m.source != 'user'
+     WHERE t.source = 'user' AND m.platform != 'custom' AND m.key_id IS NULL AND m.source NOT IN ('user', 'ai')
   `).all() as { id: number; platform: string; model_id: string }[];
   const mediaRows = db.prepare(`
     SELECT mm.id
       FROM media_models mm
       JOIN catalog_model_tombstones t
         ON t.kind = 'media' AND t.platform = mm.platform AND t.model_id = mm.model_id
-     WHERE t.source = 'user'
+     WHERE t.source = 'user' AND mm.source NOT IN ('user', 'ai')
   `).all() as { id: number }[];
 
   const deleteChatFallback = db.prepare('DELETE FROM fallback_config WHERE model_db_id = ?');

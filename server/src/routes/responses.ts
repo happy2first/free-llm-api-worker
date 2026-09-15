@@ -1,3 +1,4 @@
+import { onClientDisconnect } from '../lib/client-disconnect.js';
 import crypto from 'crypto';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
@@ -746,7 +747,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   // when the wall-clock retry budget expires mid-attempt, canceling the
   // in-flight upstream instead of waiting for a stalled attempt to time out.
   const hedgeAbort = new AbortController();
-  res.on('close', () => {
+  onClientDisconnect(res, () => {
     if (!res.writableEnded) {
       clientGone = true;
       clientAbort.abort(newClientAbortError());

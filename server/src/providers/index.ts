@@ -16,7 +16,7 @@ import { SeptorProvider } from './septor.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
-function register(provider: BaseProvider) {
+export function register(provider: BaseProvider) {
   providers.set(provider.platform, provider);
 }
 

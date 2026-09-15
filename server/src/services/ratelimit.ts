@@ -1,3 +1,4 @@
+import { runtimePolicy } from '../lib/runtime-policy.js';
 // Sliding window rate limit tracker with SQLite persistence.
 
 import { getDb, getSetting, setSetting } from '../db/index.js';
@@ -1191,6 +1192,7 @@ function persistCooldown(
       DO UPDATE SET expires_at_ms = excluded.expires_at_ms,
                     source = excluded.source,
                     set_at_ms = excluded.set_at_ms
+      ${runtimePolicy.cloudflare ? 'WHERE rate_limit_cooldowns.expires_at_ms IS NOT excluded.expires_at_ms OR rate_limit_cooldowns.source IS NOT excluded.source' : ''}
     `).run(platform, modelId, keyId, expiresAtMs, source, setAtMs);
   });
 }

@@ -1,3 +1,4 @@
+import { onClientDisconnect } from './client-disconnect.js';
 import type { Request, Response } from 'express';
 import type {
   ChatMessage,
@@ -209,7 +210,7 @@ export async function runInboundChat(
   const schemas = toolSchemaMap(input.tools);
   let clientGone = false;
   const clientAbort = new AbortController();
-  res.on('close', () => {
+  onClientDisconnect(res, () => {
     if (!res.writableEnded) {
       clientGone = true;
       clientAbort.abort(newClientAbortError());

@@ -1,3 +1,5 @@
+> **Cloudflare fork:** Workers + SQLite Durable Object + 原有 Web 管理后台。部署、测试和运行边界见 [Cloudflare 指南](cloudflare/README.md)。下面保留上游说明，桌面安装不是本分支的 Cloudflare 部署方式。
+
 <div align="center">
 
 # FreeLLMAPI

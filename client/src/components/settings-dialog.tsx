@@ -582,7 +582,7 @@ function GeneralSection({ active }: { active: boolean }) {
           />
         )}
       />
-      <UpdateChecker active={active} />
+      {import.meta.env.VITE_RUNTIME !== 'cloudflare' && <UpdateChecker active={active} />}
     </>
   )
 }
