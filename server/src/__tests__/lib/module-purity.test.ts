@@ -40,6 +40,9 @@ const PURE_MODULES = [
   'tool-call-rescue.ts',
   // Type-only imports today; listed so they stay that way.
   'client-classifier.ts',
+  // Host integration leaves must not pull Express, DB, or runtime setup in.
+  'client-disconnect.ts',
+  'runtime-policy.ts',
   'content.ts',
   'think-tags.ts',
 ];
