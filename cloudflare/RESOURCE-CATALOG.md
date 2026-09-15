@@ -19,7 +19,7 @@ remain in place. No D1, extra DO or external Node service is required.
 
 No new secrets are needed for the resource bindings. `wrangler.jsonc` declares:
 
-- `REQUEST_ANALYTICS` is optional and omitted by default so accounts without Analytics Engine can deploy.
+- `REQUEST_ANALYTICS` → dataset `freellm_requests`. This branch enables the binding; the target account must have Analytics Engine enabled.
 - `API_RATE_LIMITER` → namespace `2026091501`, 240 requests / 60 seconds. Use a different
   namespace if another Worker in the account already uses that number. Ordinary
   admission uses the same IP grouping as the previous implementation. Native limits
@@ -33,10 +33,10 @@ If the Analytics Engine binding is absent, requests still work; the runtime reso
 reports `analyticsEnabled: false` and retains only the latest 100 events in memory.
 There is deliberately no fallback that silently resumes expensive SQL analytics.
 
-### Enable persistent request analytics (optional)
+### Persistent request analytics binding
 
-First enable Analytics Engine in the Cloudflare account dashboard. Then replace
-the empty `analytics_engine_datasets` array in `wrangler.jsonc` with:
+Analytics Engine has been enabled for this deployment. The binding in
+`wrangler.jsonc` matches the dashboard configuration:
 
 ```json
 "analytics_engine_datasets": [
@@ -46,7 +46,8 @@ the empty `analytics_engine_datasets` array in `wrangler.jsonc` with:
 
 Commit and redeploy. Declaring this binding before the account enables the service
 causes Cloudflare to reject the deployment, even though compilation succeeds.
-Without this binding, SQL savings and routing remain active, but the recent
+For another account without Analytics Engine, set `analytics_engine_datasets` to
+`[]` before deploying. Without this binding, SQL savings and routing remain active, but the recent
 100-event memory buffer is not a persistent analytics history.
 
 ## SQL changes and limits
