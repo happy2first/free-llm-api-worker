@@ -3,6 +3,7 @@ import { accessGuard, applicationApi } from './access.js';
 import { DurableObject } from 'cloudflare:workers';
 import { handleAsNodeRequest } from 'cloudflare:node';
 import { createServer } from 'node:http';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import express from 'express';
 import { createApp, INLINE_BOOTSTRAP_SHA } from '../../server/src/app.js';
 import { bindDb, getDb, getSetting, setSetting } from '../../server/src/db/index.js';
@@ -34,6 +35,7 @@ export interface Env {
 installLogRedaction();
 const OBJECT_NAME = 'primary';
 const PORT = 8788;
+const clientSignals = new AsyncLocalStorage<AbortSignal>();
 // node:http's port registry lives for the isolate, not the Durable Object.
 // An object can be reconstructed while its previous listener is still alive.
 // Register once and replace the app after each successful object initialization
@@ -104,6 +106,7 @@ export class Gateway extends DurableObject<Env> {
       app.use('/api/auth/setup', express.json({ limit: '16kb' }));
       app.use(['/api/settings/proxy', '/api/keys'], express.json({ limit: '10mb' }));
       app.use((req, res, next) => {
+        res.locals.hostClientSignal = clientSignals.getStore();
         // Gateway.fetch verifies Access before passing any admin request here.
         if (!applicationApi(req.path)) {
           // JWT signature/issuer/audience/expiry were checked by Gateway.fetch.
@@ -144,9 +147,37 @@ export class Gateway extends DurableObject<Env> {
     if (!admit(getDb(), request.headers.get('x-forwarded-for') ?? 'unknown', isAuth)) {
       return Response.json({ error: { message: 'Too many requests', type: 'rate_limit_error' } }, { status: 429, headers: { 'Retry-After': isAuth ? '900' : '60' } });
     }
-    const response = await handleAsNodeRequest(PORT, request);
+    const client = new AbortController();
+    const abort = () => client.abort(new DOMException('Client disconnected', 'AbortError'));
+    if (request.signal.aborted) abort();
+    else request.signal.addEventListener('abort', abort, { once: true });
+    const response = await clientSignals.run(client.signal, () => handleAsNodeRequest(PORT, request));
     const headers = new Headers(response.headers);
     headers.set('Cache-Control', 'no-store');
+    if (response.body && headers.get('Content-Type')?.includes('text/event-stream')) {
+      // Keep the producer alive until consumption ends. Fetch cancellation is
+      // authoritative here; the Node shim's close event is not a socket signal.
+      const reader = response.body.getReader();
+      let finish!: () => void;
+      this.ctx.waitUntil(new Promise<void>(resolve => {
+        finish = () => { request.signal.removeEventListener('abort', abort); resolve(); };
+      }));
+      const readable = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const { done, value } = await reader.read();
+            if (done) { controller.close(); finish(); }
+            else controller.enqueue(value);
+          } catch (error) { controller.error(error); finish(); }
+        },
+        async cancel(reason) {
+          abort();
+          finish();
+          await reader.cancel(reason);
+        },
+      });
+      return new Response(readable, { status: response.status, headers });
+    }
     return new Response(response.body, { status: response.status, headers });
   }
   async alarm() {

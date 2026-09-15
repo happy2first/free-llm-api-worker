@@ -79,10 +79,17 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
     assert.equal(chat.status, 200, await chat.clone().text());
     assert.equal((await chat.json()).choices[0].message.content, 'native reply');
     const streaming = await request('/v1/chat/completions', { model: cfModel.modelId, messages: [{ role: 'user', content: 'Stream please' }], stream: true }, profile.key);
-    assert.equal(streaming.status, 200, await streaming.clone().text());
+    assert.equal(streaming.status, 200);
+    await Promise.all(Array.from({ length: 5 }, () => request('/api/conversations')));
     const sse = await streaming.text();
     assert.match(sse, /native stream/);
     assert.match(sse, /\[DONE\]/);
+    const cancellationNs = await mf.getDurableObjectNamespace('GATEWAY');
+    const canceledResponse = await cancellationNs.get(cancellationNs.idFromName('primary')).fetch('https://test/__test/cancel-response', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${profile.key}` },
+      body: JSON.stringify({ model: cfModel.modelId, messages: [{ role: 'user', content: 'Cancel this stream' }], stream: true }),
+    });
+    assert.equal((await canceledResponse.json()).canceled, true, 'response cancellation reaches the AI stream');
     const responseApi = await request('/v1/responses', { model: cfModel.modelId, input: 'Respond please' }, profile.key);
     assert.equal(responseApi.status, 200, await responseApi.clone().text());
     assert.match(await responseApi.text(), /native reply/);
