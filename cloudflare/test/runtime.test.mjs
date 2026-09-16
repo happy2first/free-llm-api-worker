@@ -114,6 +114,7 @@ test('real workerd: migrations, setup security, API-key lifecycle and restart pe
     assert.equal(recoveredBody._routed_via.model, fallbackModel.modelId);
     const probe = await mf.getDurableObjectNamespace('SQL_PROBE');
     const probeResult = await (await probe.get(probe.idFromName('test')).fetch('https://sql.test')).json();
+    assert.ok(probeResult.sizeAfterDelete < probeResult.sizeBeforeDelete, 'native databaseSize excludes freed pages');
     assert.equal(probeResult.admitted, 240);
     assert.equal(probeResult.resetAdmission, true);
     assert.deepEqual(probeResult.points, [{ indexes: ['cloudflare'], blobs: ['request','cloudflare','test','success',''], doubles: [2,3,5,0] }]);
@@ -165,6 +166,12 @@ test('catalog ownership, explicit conflicts, MCP authorization, restoration and 
     assert.equal(live.status, 200, 'liveness needs no Access or DO');
     const catalog = await (await request('/api/catalog')).json();
     assert.ok(catalog.records.length > 25);
+    const resources = await (await request('/api/runtime/resources')).json();
+    assert.equal(resources.storage.limitMiB, 768);
+    assert.ok(resources.storage.usedBytes > 0);
+    const storageResponse = await mf.dispatchFetch('https://gateway.test/api/runtime/storage', { method: 'PUT', headers: { 'Cf-Access-Jwt-Assertion': accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ limitMiB: 512 }) });
+    assert.equal(storageResponse.status, 200, await storageResponse.clone().text());
+    assert.equal((await storageResponse.json()).limitMiB, 512);
     assert.equal((await mf.dispatchFetch('https://gateway.test/api/catalog/mcp', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer downstream-key' } })).status, 403);
     const ns = await mf.getDurableObjectNamespace('GATEWAY');
     const stub = ns.get(ns.idFromName('primary'));
@@ -206,7 +213,7 @@ test('catalog ownership, explicit conflicts, MCP authorization, restoration and 
     const created = [];
     for (const f of fixtures) {
       const res = await request('/api/catalog/records/create', f); assert.equal(res.status, 200, await res.clone().text());
-      const r = (await res.json()).record; assert.equal(r.source, 'user'); created.push(r);
+      const r = (await res.json()).record; assert.equal(r.source, 'user'); assert.ok(r.updatedAt > 0); created.push(r);
       const conflict = await request('/api/catalog/records/update', { ...r, values: { ...r.values, ...(r.kind === 'quirk' ? { title: 'Changed' } : { display_name: 'Changed' }) } });
       assert.equal(conflict.status, 409); assert.equal((await conflict.json()).existing.revision, r.revision);
       const skip = await request('/api/catalog/records/update', { ...r, conflict: 'skip' }); assert.equal((await skip.json()).skipped, true);
@@ -256,6 +263,11 @@ test('catalog ownership, explicit conflicts, MCP authorization, restoration and 
     const badSync = await (await request('/api/catalog/sync', {})).json();
     assert.equal(badSync.ok, false);
     assert.match(badSync.detail, /signature/i);
+    await request('/api/premium/sync', {});
+    const history = (await (await request('/api/catalog')).json()).status.history;
+    assert.equal(history[0].action, 'sync');
+    assert.equal(JSON.parse(history[0].detail_json).trigger, 'premium');
+    assert.equal(JSON.parse(history[1].detail_json).trigger, 'catalog-page');
     assert.deepEqual(badSync.diff, { added: 0, updated: 0, removed: 0 });
     // Restore a tombstone explicitly as well.
     const restored = await request('/api/catalog/records/restore', { ...created[0], conflict: 'replace' }); assert.equal(restored.status, 200, await restored.clone().text());

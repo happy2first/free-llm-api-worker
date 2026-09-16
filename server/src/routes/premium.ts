@@ -75,7 +75,7 @@ premiumRouter.post('/key', async (req: Request, res: Response) => {
 
   setSetting(SETTING_LICENSE_KEY, key);
   await refreshLicenseStatus();
-  const sync = await syncCatalog(true);
+  const sync = await syncCatalog(true, 'premium');
   res.json({ ...statusPayload(), sync });
 });
 
@@ -85,14 +85,14 @@ premiumRouter.delete('/key', async (_req: Request, res: Response) => {
   db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run(SETTING_LICENSE_KEY, SETTING_LICENSE_STATUS);
   // Drop back to the free tier in the background; failure just means the next
   // scheduled poll handles it.
-  void syncCatalog(true);
+  void syncCatalog(true, 'premium');
   res.json(statusPayload());
 });
 
 /** POST /api/premium/sync — manual "check for updates now". */
 premiumRouter.post('/sync', async (_req: Request, res: Response) => {
   await refreshLicenseStatus();
-  const sync = await syncCatalog(true);
+  const sync = await syncCatalog(true, 'premium');
   res.json({ ...statusPayload(), sync });
 });
 

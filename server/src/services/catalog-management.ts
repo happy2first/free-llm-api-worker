@@ -11,7 +11,7 @@ export class CatalogError extends Error {
 type Row = Record<string, any>;
 export interface CatalogRecord {
   kind: CatalogKind; platform: string; modelId: string; source: 'freellm' | 'user' | 'ai';
-  values: Row; origin: string | null; extensions: Row; revision: string; readOnly?: boolean;
+  values: Row; origin: string | null; extensions: Row; revision: string; updatedAt: number | null; readOnly?: boolean;
 }
 const fields: Record<CatalogKind, string[]> = {
   chat: ['display_name','intelligence_rank','speed_rank','size_label','rpm_limit','rpd_limit','tpm_limit','tpd_limit','monthly_token_budget','context_window','enabled','supports_vision','supports_tools'],
@@ -37,8 +37,8 @@ function record(kind: CatalogKind, row: Row, notes?: Row): CatalogRecord {
   const modelId = kind === 'quirk' ? row.slug : row.model_id;
   const values = Object.fromEntries(fields[kind].map(field => [field, row[field] ?? null]));
   if (kind === 'quirk') values.targets = getDb().prepare('SELECT platform, model_glob FROM quirk_targets WHERE quirk_id = ? ORDER BY id').all(row.id);
-  const value = { kind, platform, modelId, source: row.source === 'user' || row.source === 'ai' ? row.source : 'freellm', values, origin: notes?.origin ?? null, extensions: parse(notes?.extensions_json), readOnly: row.key_id != null } as Omit<CatalogRecord, 'revision'>;
-  return { ...value, revision: createHash('sha256').update(JSON.stringify(value)).digest('hex') };
+  const value = { kind, platform, modelId, source: row.source === 'user' || row.source === 'ai' ? row.source : 'freellm', values, origin: notes?.origin ?? null, extensions: parse(notes?.extensions_json), readOnly: row.key_id != null } as Omit<CatalogRecord, 'revision' | 'updatedAt'>;
+  return { ...value, updatedAt: notes?.updated_at_ms ?? row.updated_at_ms ?? null, revision: createHash('sha256').update(JSON.stringify(value)).digest('hex') };
 }
 export function readCatalog(input: Row): CatalogRecord | null {
   const kind = checkIdentity(input);
@@ -68,6 +68,8 @@ export function listCatalog(query: Row = {}): CatalogRecord[] {
 export function catalogStatus() {
   const official = parse(getSetting('catalog_applied_json'), null);
   return { ...getSyncState(), lastSyncMs: Number(getSetting('catalog_last_check_ms')) || getSyncState().lastSyncMs, generatedAt: official?.generatedAt ?? null, official,
+    autoSync: { intervalHours: 12, enabled: process.env.CATALOG_SYNC_DISABLED !== '1' },
+    providersWithoutChatModels: (getDb().prepare("SELECT DISTINCT k.platform FROM api_keys k WHERE NOT EXISTS (SELECT 1 FROM models m WHERE m.platform = k.platform AND m.enabled = 1)").all() as { platform: string }[]).map(r => r.platform),
     history: getDb().prepare('SELECT * FROM catalog_history ORDER BY id DESC LIMIT 20').all(),
     extensions: ['credentialRequirement','freeQuota','requiresCreditCard','requiresPhone','requiresKyc','signupUrl','regions','notes','evidenceLinks'],
   };
@@ -173,22 +175,11 @@ export function mutateCatalog(action: 'create' | 'update' | 'delete' | 'restore'
     const extensions = action === 'restore' ? {} : (input.extensions ?? existing?.extensions ?? {});
     if ((origin !== null && (typeof origin !== 'string' || origin.length > 200)) || !extensions || typeof extensions !== 'object' || Array.isArray(extensions) || JSON.stringify(extensions).length > 32000) throw new CatalogError(400, 'Invalid origin/extensions (object, max 32KB)');
     db.prepare(`INSERT INTO catalog_annotations(kind, platform, model_id, origin, extensions_json, deleted_source) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(kind, platform, model_id) DO UPDATE SET origin=excluded.origin, extensions_json=excluded.extensions_json, deleted_source=excluded.deleted_source`).run(kind, input.platform, input.modelId, origin, JSON.stringify(extensions), action === 'delete' ? owner : null);
+    db.prepare('UPDATE catalog_annotations SET updated_at_ms = ? WHERE kind = ? AND platform = ? AND model_id = ?').run(Date.now(), kind, input.platform, input.modelId);
     audit(action, { kind, platform: input.platform, modelId: input.modelId, source });
     return { skipped: false, record: action === 'delete' ? null : readCatalog(input) };
   })();
 }
-let syncing: Promise<unknown> | undefined;
 export function checkCatalogUpdates() {
-  if (syncing) return syncing;
-  syncing = (async () => {
-    const before = new Map(listCatalog().map(r => [identity(r.kind, r.platform, r.modelId), r.revision]));
-    const result = await syncCatalog(true);
-    const after = new Map(listCatalog().map(r => [identity(r.kind, r.platform, r.modelId), r.revision]));
-    const diff = { added: 0, updated: 0, removed: 0 };
-    for (const [key, revision] of after) { if (!before.has(key)) diff.added++; else if (before.get(key) !== revision) diff.updated++; }
-    for (const key of before.keys()) if (!after.has(key)) diff.removed++;
-    audit('sync', { result, diff });
-    return { ...result, diff, checkedAt: Date.now() };
-  })().finally(() => { syncing = undefined; });
-  return syncing;
+  return syncCatalog(true, 'catalog-page');
 }

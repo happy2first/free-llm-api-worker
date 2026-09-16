@@ -1,3 +1,4 @@
+import { StoragePolicy } from './storage-policy.js';
 import { configureRuntime, recentHealthyKeys } from '../../server/src/lib/runtime-policy.js';
 import { ResourceMetrics } from './telemetry.js';
 import { decodeJwt } from 'jose';
@@ -90,6 +91,7 @@ export class Gateway extends DurableObject<Env> {
   private admission = new Admission();
   private metrics: ResourceMetrics;
   private lastPrune = 0;
+  private storagePolicy!: StoragePolicy;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.metrics = new ResourceMetrics(env.REQUEST_ANALYTICS);
@@ -110,6 +112,7 @@ export class Gateway extends DurableObject<Env> {
         latency_ms INTEGER NOT NULL, ttfb_ms INTEGER, request_type TEXT NOT NULL DEFAULT 'chat',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       ); CREATE INDEX IF NOT EXISTS idx_cf_routing_time ON cloudflare_routing_events(created_at);`);
+      this.storagePolicy = new StoragePolicy(() => ctx.storage.sql.databaseSize);
       initEncryptionKey(getDb());
       // Migrations are tracked; reapply only when that set changes, not every eviction.
       const migrationStamp = JSON.stringify(getDb().prepare('SELECT * FROM migrations').all());
@@ -159,7 +162,11 @@ export class Gateway extends DurableObject<Env> {
         next();
       });
       const config = { ...loadConfig(), serveStaticAssets: false, trustProxy: true };
-      app.get('/api/runtime/resources', (_req, res) => res.json(this.metrics.snapshot()));
+      app.get('/api/runtime/resources', (_req, res) => res.json({ ...this.metrics.snapshot(), storage: this.storagePolicy.snapshot(), catalogSchedule: { intervalHours: 12, lastRunMs: Number(getSetting('cloudflare_catalog_at')) || null } }));
+      app.put('/api/runtime/storage', express.json({ limit: '2kb' }), (req, res) => {
+        try { res.json(this.storagePolicy.configure(req.body?.limitMiB)); }
+        catch (error) { res.status(400).json({ error: { message: error instanceof Error ? error.message : 'Invalid storage limit' } }); }
+      });
       app.use(createApp(config));
       if (await ctx.storage.getAlarm() === null) await ctx.storage.setAlarm(Date.now() + 10_000);
       gatewayApp = app;
@@ -232,6 +239,7 @@ export class Gateway extends DurableObject<Env> {
       try { await run(); }
       catch { console.error(`[cloudflare] ${name} maintenance failed`); }
     }
+    this.storagePolicy.maintain();
     cleanupExpiredCooldowns();
     if (Date.now() - this.lastPrune >= 3600_000) {
       pruneRequestAnalytics({ force: true });

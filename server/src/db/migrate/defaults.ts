@@ -1,3 +1,4 @@
+import * as catalogTimestamps from '../migrations/20260916_000001_catalog_timestamps.js';
 import * as catalogManagement from '../migrations/20260915_000001_catalog_management.js';
 import type { Db } from '../types.js';
 import * as legacyBaseline from '../migrations/20260101_000000_legacy_baseline.js';
@@ -116,4 +117,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: MCP_ENABLED_DEFAULT_FILENAME, module: mcpEnabledDefault },
   { filename: RESPONSE_CACHE_FILENAME, module: responseCache },
   { filename: '20260915_000001_catalog_management.ts', module: catalogManagement },
+  { filename: '20260916_000001_catalog_timestamps.ts', module: catalogTimestamps },
 ];

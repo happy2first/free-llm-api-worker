@@ -211,3 +211,41 @@ SOCKS proxy. It is not reported as passing.
 Keep the neutral `runtime-policy` opt-in and ownership guards when absorbing upstream
 updates. Avoid replacing the routing union with lossy sampled analytics. No Provider,
 Fallback or streaming algorithm was rewritten by this extension.
+
+## Catalog history and storage controls (2026-09-16)
+
+- All signed catalog checks now record one bounded history entry in the shared
+  sync service, including Premium, Catalog and the existing 12-hour scheduled
+  check. Concurrent callers share one check. No second scheduler was added.
+- Catalog management writes and changes observed during signed sync have an
+  `updatedAt` timestamp. Unknown historical timestamps remain unknown; checking
+  an unchanged catalog does not reset model timestamps. Ownership protection
+  and signature verification remain unchanged.
+- Settings → General → Cloudflare server resources (Cloudflare builds only)
+  shows Gateway SQLite `databaseSize`, the Analytics Engine binding state and
+  in-memory SQL read/write counters. These are not account-wide daily quotas.
+- The persisted cleanup target defaults to 768 MiB and accepts 64–10240 MiB.
+  Every five-minute maintenance alarm checks it. Above the target, at most 1000
+  oldest log/conversation records are deleted per pass, aiming at 90% of the
+  limit. Conversations updated within the last hour are protected. Credentials,
+  catalog, quota/routing state and audit records are never pressure-pruned.
+  Saving a lower target can immediately clean old records. If protected/core
+  data alone exceeds the target, the UI reports remaining pressure; this is
+  not a hard storage cap or a guarantee against Cloudflare quota exhaustion.
+  Cleanup status/counters are in memory; only the configured limit is persisted.
+
+### B.AI and MCP
+
+B.AI has a registered `bai` Provider (`https://api.b.ai/v1`), but no bundled
+model seed. Saving a credential does not import the provider's model list.
+The Catalog page identifies providers with credentials but no enabled chat
+models. Check the signed catalog or manually add a verified model under
+platform `bai` using its exact API model ID. A catalog entry is not evidence
+that a model is free for the account.
+
+Catalog MCP: `https://<your-domain>/api/catalog/mcp` (Streamable HTTP).
+It has the same administrator Access JWT requirement as the dashboard. It does
+not implement OAuth authorization-server discovery or registration, and a
+browser Access session is not a ChatGPT connector credential. An authenticated
+MCP client/Access gateway is required; merely pasting the URL into ChatGPT is
+not a verified connection path. Downstream API keys cannot manage the catalog.

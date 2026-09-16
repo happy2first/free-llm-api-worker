@@ -1,3 +1,4 @@
+import { catalogSnapshot, recordCatalogCheck } from './catalog-observation.js';
 import { protectedCatalogEntries, identity } from './catalog-ownership.js';
 import crypto from 'crypto';
 import type { Db } from '../db/types.js';
@@ -698,7 +699,17 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
  * `force` skips the `since` short-circuit — used right after a license key is
  * added or removed, where the tier can change without the version changing.
  */
-export async function syncCatalog(force = false): Promise<SyncResult> {
+let activeSync: Promise<SyncResult & { diff: { added: number; updated: number; removed: number }; checkedAt: number }> | undefined;
+export function syncCatalog(force = false, trigger = 'scheduled') {
+  if (activeSync) return activeSync;
+  activeSync = (async () => {
+    const db = getDb(), before = catalogSnapshot(db);
+    const result = await performCatalogSync(force);
+    return { ...result, ...recordCatalogCheck(db, before, result, trigger) };
+  })().finally(() => { activeSync = undefined; });
+  return activeSync;
+}
+async function performCatalogSync(force = false): Promise<SyncResult> {
   setSetting('catalog_last_check_ms', String(Date.now()));
   const db = getDb();
   const key = getSetting(SETTING_LICENSE_KEY);

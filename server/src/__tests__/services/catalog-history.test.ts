@@ -1,0 +1,31 @@
+import { beforeAll, expect, it, vi, afterEach } from 'vitest';
+import { initDb, getDb } from '../../db/index.js';
+import { catalogSnapshot, recordCatalogCheck } from '../../services/catalog-observation.js';
+import { mutateCatalog, readCatalog } from '../../services/catalog-management.js';
+import { syncCatalog } from '../../services/catalog-sync.js';
+beforeAll(() => { process.env.ENCRYPTION_KEY = '00'.repeat(32); initDb(':memory:'); });
+afterEach(() => vi.unstubAllGlobals());
+it('records actual changes, preserves timestamps on no-op checks and keeps local ownership', () => {
+  const db = getDb(), id = { kind: 'chat', platform: 'bai', modelId: 'history-test' };
+  const before = catalogSnapshot(db);
+  const created = mutateCatalog('create', { ...id, values: { display_name: 'B.AI test' } }, 'ai').record!;
+  expect(created.updatedAt).toBeGreaterThan(0);
+  const first = recordCatalogCheck(db, before, { ok: true }, 'scheduled');
+  expect(first.diff).toEqual({ added: 1, updated: 0, removed: 0 });
+  const current = readCatalog(id)!;
+  expect(current.source).toBe('ai');
+  const unchanged = catalogSnapshot(db);
+  expect(recordCatalogCheck(db, unchanged, { ok: true }, 'premium').diff).toEqual({ added: 0, updated: 0, removed: 0 });
+  expect(readCatalog(id)!.updatedAt).toBe(current.updatedAt);
+  db.prepare('UPDATE models SET display_name = ? WHERE platform = ? AND model_id = ?').run('New name', id.platform, id.modelId);
+  expect(recordCatalogCheck(db, unchanged, { ok: true }, 'scheduled').diff.updated).toBe(1);
+});
+it('central sync records failure and no-change results regardless of entrypoint', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 304 })));
+  const result = await syncCatalog(false, 'scheduled');
+  expect(result.action).toBe('up_to_date');
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline test')));
+  expect((await syncCatalog(true, 'premium')).ok).toBe(false);
+  const rows = getDb().prepare("SELECT detail_json FROM catalog_history WHERE action = 'sync' ORDER BY id DESC LIMIT 2").all() as { detail_json: string }[];
+  expect(rows.map(r => JSON.parse(r.detail_json).trigger)).toEqual(['premium', 'scheduled']);
+});

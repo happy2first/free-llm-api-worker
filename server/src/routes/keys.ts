@@ -1,3 +1,4 @@
+import { runtimePolicy } from '../lib/runtime-policy.js';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
@@ -187,6 +188,7 @@ function enabledModelCount(platform: string): number {
 // explain the silence instead of leaving the user staring at an empty list.
 function noModelsNotice(platform: string): string | undefined {
   if (enabledModelCount(platform) > 0) return undefined;
+  if (runtimePolicy.cloudflare) return `Key saved, but no enabled ${platform} chat models are in the catalog. Open Models → Catalog to check signed updates or add a verified model with platform=${platform}. Saving a key does not import models or guarantee free quota.`;
   return (
     `Key saved, but no ${platform} models are in your current catalog yet. ` +
     `Newer providers are published to the premium catalog first and appear ` +

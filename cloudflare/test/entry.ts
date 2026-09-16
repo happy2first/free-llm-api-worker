@@ -41,12 +41,16 @@ export class SqlProbe extends DurableObject {
       db.prepare('INSERT INTO test VALUES (?, ?)').run(3, 'outer');
       try { db.transaction(() => { db.prepare('INSERT INTO test VALUES (?, ?)').run(4, 'inner rollback'); throw new Error('inner'); })(); } catch {}
     })();
+    db.prepare('INSERT INTO test VALUES (?, ?)').run(99, 'x'.repeat(128 * 1024));
+    const sizeBeforeDelete = this.ctx.storage.sql.databaseSize;
+    db.prepare('DELETE FROM test WHERE id = ?').run(99);
+    const sizeAfterDelete = this.ctx.storage.sql.databaseSize;
     const admission = new Admission();
     const admitted = Array.from({ length: 241 }, () => admission.admit('test-ip', 0)).filter(Boolean).length;
     const points: unknown[] = [];
     const metrics = new ResourceMetrics({ writeDataPoint: point => { points.push(point); } });
     metrics.emit({ type: 'request', platform: 'cloudflare', model: 'test', status: 'success', input: 2, output: 3, latency: 5 });
-    return Response.json({ admitted, resetAdmission: admission.admit('test-ip', 60001), points, validTool: validateToolArguments('test', '{\"count\":2}', { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }), invalidTool: validateToolArguments('test', '{\"count\":\"wrong\"}', { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }), rows: db.prepare('SELECT * FROM test ORDER BY id').all(), bound: bindSql("SELECT '@literal', @value -- @comment", [{ value: 7 }]) });
+    return Response.json({ sizeBeforeDelete, sizeAfterDelete, admitted, resetAdmission: admission.admit('test-ip', 60001), points, validTool: validateToolArguments('test', '{\"count\":2}', { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }), invalidTool: validateToolArguments('test', '{\"count\":\"wrong\"}', { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }), rows: db.prepare('SELECT * FROM test ORDER BY id').all(), bound: bindSql("SELECT '@literal', @value -- @comment", [{ value: 7 }]) });
   }
 }
 
