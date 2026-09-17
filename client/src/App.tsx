@@ -71,7 +71,6 @@ const navItems = [
   { to: '/keys', labelKey: 'nav.keys' },
   { to: '/agents', labelKey: 'nav.agents' },
   { to: '/analytics', labelKey: 'nav.analytics' },
-  { to: '/premium', labelKey: 'nav.premium' },
 ]
 
 // The modality pages behind "Models"; surfaced in the nav dropdown and
@@ -136,7 +135,7 @@ function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-70">
-      <span className="inline-block size-2 rounded-full bg-foreground" />
+      <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" width={32} height={32} className="size-8 object-contain" />
       <span className="font-semibold tracking-tight text-sm">FreeLLMAPI</span>
     </Link>
   )

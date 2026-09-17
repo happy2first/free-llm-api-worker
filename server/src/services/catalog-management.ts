@@ -1,3 +1,4 @@
+import { parseModelScope, scopeAllows } from '../lib/model-scope.js';
 import { recordCatalogModelTombstone } from './model-state.js';
 import { createHash } from 'node:crypto';
 import { getDb, getSetting } from '../db/index.js';
@@ -11,7 +12,7 @@ export class CatalogError extends Error {
 type Row = Record<string, any>;
 export interface CatalogRecord {
   kind: CatalogKind; platform: string; modelId: string; source: 'freellm' | 'user' | 'ai';
-  values: Row; origin: string | null; extensions: Row; revision: string; updatedAt: number | null; readOnly?: boolean;
+  values: Row; origin: string | null; extensions: Row; revision: string; updatedAt: number | null; readOnly?: boolean; integration?: { connected: boolean; reason: string };
 }
 const fields: Record<CatalogKind, string[]> = {
   chat: ['display_name','intelligence_rank','speed_rank','size_label','rpm_limit','rpd_limit','tpm_limit','tpd_limit','monthly_token_budget','context_window','enabled','supports_vision','supports_tools'],
@@ -49,6 +50,8 @@ export function readCatalog(input: Row): CatalogRecord | null {
 export function listCatalog(query: Row = {}): CatalogRecord[] {
   if (query.kind && !Object.hasOwn(catalogTables, query.kind)) throw new CatalogError(400, 'Unknown catalog kind');
   const db = getDb();
+  // Read credential metadata once, never secrets or one SQL query per model.
+  const keys = (db.prepare('SELECT id, platform, enabled, status, model_scope_json FROM api_keys').all() as { id: number; platform: string; enabled: number; status: string; model_scope_json: string | null }[]).map(k => ({ ...k, scope: parseModelScope(k.model_scope_json) }));
   const notes = new Map((db.prepare('SELECT * FROM catalog_annotations').all() as Row[]).map(r => [identity(r.kind, r.platform, r.model_id), r]));
   const rows: CatalogRecord[] = [];
   for (const kind of Object.keys(catalogTables) as CatalogKind[]) {
@@ -60,6 +63,13 @@ export function listCatalog(query: Row = {}): CatalogRecord[] {
       const r = record(kind, row, notes.get(identity(kind, platform, modelId)));
       if (query.source && r.source !== query.source) continue;
       if (query.search && !JSON.stringify(r).toLowerCase().includes(String(query.search).toLowerCase())) continue;
+      if (kind !== 'quirk') {
+        const matching = keys.filter(k => k.platform === platform && (row.key_id == null || row.key_id === k.id) && scopeAllows(k.scope, modelId));
+        const enabled = matching.filter(k => k.enabled === 1);
+        // Configuration status, not a quota/cooldown probe or a promise of successful inference.
+        r.integration = { connected: row.enabled === 1 && enabled.some(k => ['healthy', 'unknown'].includes(k.status)),
+          reason: row.enabled !== 1 ? '模型未启用' : !matching.length ? '未配置匹配凭证' : !enabled.length ? '凭证未启用' : !enabled.some(k => ['healthy', 'unknown'].includes(k.status)) ? '凭证状态异常' : '已接入（未实时测试）' };
+      }
       rows.push(r);
     }
   }

@@ -111,3 +111,30 @@ Cloudflare 官方参考：[Node HTTP/Express 接入](https://developers.cloudfla
 
 新功能的使用、MCP 身份验证、数据所有权和 SQL 对比测试见 [RESOURCE-CATALOG.md](RESOURCE-CATALOG.md)。
 管理地址：`https://llm.api.happyfirst.top/models/catalog`。升级现有 Worker 即可，无需删除 Worker 或数据库。
+
+### Settings: MCP connection and Catalog integration
+
+Settings now displays two addresses derived from the current dashboard origin and
+base path (no hard-coded hostname):
+
+- `/api/catalog/mcp`: administrator Catalog tools, with the same Access protection
+  as the dashboard. The connection test sends only `initialize` and `tools/list`,
+  checks JSON-RPC errors, rejects login redirects, and times out after 15 seconds.
+- `/mcp`: gateway introspection and routing tools. Enable it in Keys → Agent
+  compatibility; it requires the unified Bearer API key **and**, on this deployment,
+  the outer Access authentication.
+
+Use a Streamable HTTP client, not a browser GET. The browser connection test only
+verifies the current administrator session. Remote clients need their own Access
+access; this app does not implement an OAuth onboarding flow for ChatGPT. Do not
+bypass Access on the Catalog management endpoint to make a client connect.
+
+Catalog's installation column is derived without writes or active probes: a model
+must be enabled and have an enabled, healthy/unknown credential matching its
+platform, endpoint key ID (if present), and model scope. It is configuration status,
+not proof of current quota, cooldown expiry, profile selection, or successful
+inference. Credential metadata is fetched once per listing; no secrets are returned
+and this volatile status is excluded from Catalog edit revisions.
+
+The web dashboard/login brand and favicon use `client/public/logo.png`. Premium is
+hidden from navigation and command search; Catalog signed update logic is retained.

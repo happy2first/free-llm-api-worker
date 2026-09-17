@@ -1,0 +1,27 @@
+import { beforeAll, expect, it } from 'vitest';
+import { initDb, getDb } from '../../db/index.js';
+import { listCatalog, mutateCatalog, readCatalog } from '../../services/catalog-management.js';
+beforeAll(() => { process.env.ENCRYPTION_KEY = '00'.repeat(32); initDb(':memory:'); });
+it('reports installation configuration without changing revisions or exposing credentials', () => {
+  const db = getDb();
+  const id = { kind: 'chat', platform: 'bai', modelId: 'integration-test' };
+  mutateCatalog('create', { ...id, values: { display_name: 'Integration test' } }, 'user');
+  const revision = readCatalog(id)!.revision;
+  const list = () => listCatalog({ kind: 'chat', platform: 'bai' }).find(r => r.modelId === id.modelId)!;
+  expect(list().integration).toEqual({ connected: false, reason: '未配置匹配凭证' });
+  const key = db.prepare("INSERT INTO api_keys(platform,encrypted_key,iv,auth_tag,status,enabled,model_scope_json) VALUES ('bai','secret-never-returned','','','unknown',1,?)").run('["other-model"]');
+  expect(list().integration?.connected).toBe(false);
+  db.prepare('UPDATE api_keys SET model_scope_json = NULL WHERE id = ?').run(key.lastInsertRowid);
+  expect(list().integration?.connected).toBe(true);
+  expect(JSON.stringify(list())).not.toContain('secret-never-returned');
+  expect(list().revision).toBe(revision);
+  db.prepare("UPDATE api_keys SET status = 'invalid' WHERE id = ?").run(key.lastInsertRowid);
+  expect(list().integration?.reason).toBe('凭证状态异常');
+  db.prepare("UPDATE api_keys SET status = 'healthy', enabled = 0 WHERE id = ?").run(key.lastInsertRowid);
+  expect(list().integration?.reason).toBe('凭证未启用');
+  db.prepare('UPDATE api_keys SET enabled = 1 WHERE id = ?').run(key.lastInsertRowid);
+  db.prepare('UPDATE models SET enabled = 0 WHERE platform = ? AND model_id = ?').run(id.platform, id.modelId);
+  expect(list().integration?.reason).toBe('模型未启用');
+  db.prepare('UPDATE models SET enabled = 1, key_id = ? WHERE platform = ? AND model_id = ?').run(Number(key.lastInsertRowid) + 999, id.platform, id.modelId);
+  expect(list().integration?.connected).toBe(false);
+});
