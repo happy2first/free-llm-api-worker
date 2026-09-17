@@ -51,7 +51,7 @@ export function McpConnectionSettings() {
     <p className="text-sm text-muted-foreground">地址根据当前浏览器域名生成。传输方式：Streamable HTTP（JSON-RPC POST）。浏览器直接打开地址可能返回 405，请使用下方连接测试。</p>
     <div className="space-y-2 text-sm"><strong>Catalog 目录管理 MCP</strong><code className="block select-all break-all rounded bg-muted p-2">{catalog}</code>
       <div className="flex gap-2"><Button variant="outline" onClick={() => copy(catalog)}>复制目录 MCP 地址</Button><Button disabled={busy} onClick={test}>{busy ? '测试中…' : '测试目录 MCP 连接'}</Button></div>
-      <p>支持搜索、读取、新增、修改、删除及恢复官方目录。测试只执行 initialize 和 tools/list，不修改目录。</p>
+      <p>支持目录管理与独立 Provider 注册（provider_list / provider_read / provider_register）。新平台先注册，再添加 Catalog 模型及密钥。测试只执行 initialize 和 tools/list，不修改目录。</p>
     </div>
     <details className="space-y-2 text-sm"><summary>网关 MCP（模型、健康与路由）</summary><code className="block select-all break-all rounded bg-muted p-2">{gateway}</code><Button variant="outline" onClick={() => copy(gateway)}>复制网关 MCP 地址</Button><p>先在“密钥 → 智能体兼容”启用 MCP，再使用统一 API 密钥作为 Authorization: Bearer 凭证；Cloudflare 部署还需要通过外层 Access。</p></details>
     <details className="space-y-2 text-sm"><summary>客户端接入与排错说明</summary>

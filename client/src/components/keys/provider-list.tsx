@@ -1,3 +1,4 @@
+import { useProviderOptions } from './use-provider-options'
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
@@ -23,7 +24,6 @@ import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
 import {
-  PLATFORMS,
   CUSTOM_GROUP,
   CUSTOM_MODEL_KIND_LABEL,
   customModelDeleteKey,
@@ -47,6 +47,7 @@ type BulkAction = 'enable' | 'disable' | 'delete'
 // KeysPage stays a thin shell. `onAddKey` opens the shared Add key dialog.
 export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
   const { t } = useI18n()
+  const platforms = useProviderOptions()
   const queryClient = useQueryClient()
 
   const [editingKeyId, setEditingKeyId] = useState<number | null>(null)
@@ -277,7 +278,7 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
   for (const k of healthData?.keys ?? []) healthKeyMap.set(k.id, k)
   const statusOf = (k: ApiKey) => healthKeyMap.get(k.id)?.status ?? k.status
 
-  const grouped = [...PLATFORMS, CUSTOM_GROUP].map(p => ({
+  const grouped = [...platforms, CUSTOM_GROUP].map(p => ({
     ...p,
     keys: keys.filter(k => k.platform === p.value),
   })).filter(p => p.keys.length > 0)

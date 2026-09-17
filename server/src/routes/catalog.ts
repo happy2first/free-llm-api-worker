@@ -1,3 +1,5 @@
+import { providerTools, callProviderTool } from './provider-mcp.js';
+import { ProviderManagementError } from '../services/provider-management.js';
 import { Router } from 'express';
 import { CatalogError, catalogStatus, checkCatalogUpdates, listCatalog, mutateCatalog, readCatalog } from '../services/catalog-management.js';
 export const catalogRouter = Router();
@@ -21,22 +23,23 @@ const tools = ['search','read','create','update','delete','restore'].map(action 
 // Stateless Streamable HTTP MCP; same administrator authentication as /api/catalog.
 // This endpoint is NEVER reachable with a downstream application API key alone.
 catalogRouter.get('/mcp', (_req, res) => { res.set('Allow', 'POST').status(405).end(); });
-catalogRouter.post('/mcp', (req, res) => {
+catalogRouter.post('/mcp', async (req, res) => {
   const msg = req.body;
   if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string' || Array.isArray(msg)) { res.status(400).json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid request' } }); return; }
   if (!Object.hasOwn(msg, 'id')) { res.status(202).end(); return; }
   const reply = (result: unknown) => res.json({ jsonrpc: '2.0', id: msg.id, result });
   if (msg.method === 'initialize') { reply({ protocolVersion: '2025-03-26', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'freellm-catalog', version: '1.0.0' } }); return; }
   if (msg.method === 'ping') { reply({}); return; }
-  if (msg.method === 'tools/list') { reply({ tools }); return; }
+  if (msg.method === 'tools/list') { reply({ tools: [...tools, ...providerTools] }); return; }
   if (msg.method !== 'tools/call') { res.json({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } }); return; }
   const action = String(msg.params?.name ?? '').replace(/^catalog_/, '');
   try {
-    if (!tools.some(t => t.name === msg.params?.name)) throw new CatalogError(400, 'Unknown tool');
+    if (![...tools, ...providerTools].some(t => t.name === msg.params?.name)) throw new CatalogError(400, 'Unknown tool');
     const input = msg.params.arguments ?? {};
     if (!input || Array.isArray(input) || typeof input !== 'object') throw new CatalogError(400, 'arguments must be an object');
     let result: unknown;
-    if (action === 'search') {
+    if (providerTools.some(t => t.name === msg.params.name)) result = await callProviderTool(msg.params.name, input);
+    else if (action === 'search') {
       const all = listCatalog(input);
       const offset = Number.isInteger(input.offset) && input.offset >= 0 ? input.offset : 0;
       const limit = Number.isInteger(input.limit) ? Math.max(1, Math.min(100, input.limit)) : 50;
@@ -45,7 +48,7 @@ catalogRouter.post('/mcp', (req, res) => {
     else result = mutateCatalog(action as any, input, 'ai');
     reply({ content: [{ type: 'text', text: JSON.stringify(result) }] });
   } catch (e) {
-    const error = e instanceof CatalogError ? e : new CatalogError(500, 'Catalog operation failed');
-    reply({ isError: true, content: [{ type: 'text', text: JSON.stringify({ status: error.status, message: error.message, existing: error.existing, proposed: error.proposed }) }] });
+    const error = e instanceof CatalogError || e instanceof ProviderManagementError ? e : new CatalogError(500, 'Catalog operation failed');
+    reply({ isError: true, content: [{ type: 'text', text: JSON.stringify({ status: error.status, message: error.message, existing: error.existing, proposed: error instanceof CatalogError ? error.proposed : undefined }) }] });
   }
 });

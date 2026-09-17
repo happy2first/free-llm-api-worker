@@ -1,3 +1,4 @@
+import { useProviderOptions } from './use-provider-options'
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
@@ -10,7 +11,7 @@ import type { ImportKey, ImportSelectedResponse, Platform, PreviewKey, PreviewRe
 import { Upload } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
-import { CUSTOM_GROUP, PLATFORMS } from './shared'
+import { CUSTOM_GROUP } from './shared'
 
 interface ImportRow extends PreviewKey {
   selected: boolean
@@ -24,6 +25,7 @@ interface ImportRow extends PreviewKey {
 // import succeeds.
 export function ImportKeysSection({ onImported }: { onImported?: () => void } = {}) {
   const { t } = useI18n()
+  const platforms = useProviderOptions()
   const queryClient = useQueryClient()
   const [files, setFiles] = useState<File[]>([])
   const [rows, setRows] = useState<ImportRow[]>([])
@@ -34,7 +36,7 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
   // imported row is the one case where it belongs there: the file already
   // names the endpoint, and without the option the row can never be selected
   // and the endpoint can never be restored (#687).
-  const importablePlatforms = [...PLATFORMS.filter(p => !p.keyless), CUSTOM_GROUP]
+  const importablePlatforms = [...platforms.filter(p => !p.keyless), CUSTOM_GROUP]
 
   function platformFromPreview(key: PreviewKey): Platform | '' {
     // A custom row is only importable with its base URL; there is nowhere to

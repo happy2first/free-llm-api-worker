@@ -1,3 +1,4 @@
+import { useProviderOptions } from './use-provider-options'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
@@ -12,7 +13,7 @@ import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
 import type { FallbackEntry } from '@/lib/routing'
 import { scopeCandidates, shouldOfferModelPicker, type ScopeCandidate } from '@/lib/model-scope-selection'
-import { GetKeyLink, PLATFORMS } from './shared'
+import { GetKeyLink } from './shared'
 
 /** A key that just landed, plus the models the picker should offer for it.
  *  Only produced when the picker is actually worth showing (#657) — otherwise
@@ -35,6 +36,7 @@ export interface AddedKeyScopeOffer {
 // dialog owns that follow-up because this pane unmounts the moment it closes.
 export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?: AddedKeyScopeOffer) => void; initialPlatform?: Platform }) {
   const { t } = useI18n()
+  const platforms = useProviderOptions()
   const queryClient = useQueryClient()
   const [platform, setPlatform] = useState<Platform | ''>(initialPlatform ?? '')
   const [apiKey, setApiKey] = useState('')
@@ -78,7 +80,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?:
   // too small or not loaded — returns undefined, and the add stays silent.
   function scopeOffer(keyId: number | undefined, added: string): AddedKeyScopeOffer | undefined {
     if (typeof keyId !== 'number') return undefined
-    const provider = PLATFORMS.find(p => p.value === added)
+    const provider = platforms.find(p => p.value === added)
     // Keyless gateways are excluded from scope editing on the key row too — no
     // credential means nothing was bought per model group.
     if (!provider || provider.keyless) return undefined
@@ -88,7 +90,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?:
   }
 
   const platformOptions = useMemo(
-    () => PLATFORMS
+    () => platforms
       // The selected provider always stays listed, so hiding added ones never
       // blanks out the trigger label.
       .filter(p => !hideAdded || !addedPlatforms.has(p.value) || p.value === platform)
@@ -97,7 +99,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?:
         label: p.label,
         sub: addedPlatforms.has(p.value) ? t('keys.discoverAlreadyAdded') : undefined,
       })),
-    [hideAdded, addedPlatforms, platform, t],
+    [platforms, hideAdded, addedPlatforms, platform, t],
   )
 
   const addKey = useMutation({
@@ -136,7 +138,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?:
   })
 
   const needsAccountId = platform === 'cloudflare'
-  const isKeyless = PLATFORMS.find(p => p.value === platform)?.keyless ?? false
+  const isKeyless = platforms.find(p => p.value === platform)?.keyless ?? false
   // Cloudflare pairs each token with an account id, and keyless providers have
   // nothing to paste, so neither can take a list.
   const canPasteSeveral = !isKeyless && !needsAccountId
@@ -206,7 +208,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?:
           />
           {addAttempted && <FieldError error={platformError} />}
           {(() => {
-            const sel = PLATFORMS.find(p => p.value === platform)
+            const sel = platforms.find(p => p.value === platform)
             return sel?.url ? <div className="pt-0.5"><GetKeyLink url={sel.url} /></div> : null
           })()}
         </div>

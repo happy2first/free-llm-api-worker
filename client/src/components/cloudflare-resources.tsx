@@ -20,24 +20,31 @@ export function CloudflareResources({ active }: { active: boolean }) {
   }, [active])
   const run = async (job: () => Promise<void>) => { setBusy(true); setError(''); setNotice(''); try { await job() } catch (e) { setError((e as Error).message) } finally { setBusy(false) } }
   const totals = data?.sql.reduce((a, r) => ({ read: a.read + r.read, written: a.written + r.written }), { read: 0, written: 0 })
-  return <section className="mt-6 space-y-3 border-t pt-5 text-sm">
-    <div className="flex items-center justify-between gap-3"><h3 className="font-medium">Cloudflare 服务器资源</h3><Button size="sm" variant="outline" disabled={busy} onClick={() => run(load)}>刷新</Button></div>
-    <p className="text-xs text-muted-foreground">仅当前 Gateway 的存储和运行统计；不代表整个 Cloudflare 账户的每日额度、CPU 或内存使用量。</p>
+  return <section className="space-y-4 rounded-xl border p-5 text-sm">
+    <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Cloudflare 资源统计</h3><Button size="sm" variant="outline" disabled={busy} onClick={() => run(load)}>刷新</Button></div>
+    <p className="text-xs text-muted-foreground">当前 Gateway 实例 · 运行计数重启后归零，不代表账户账单额度。</p>
     {error && <p role="alert" className="text-destructive">{error}</p>}{notice && <p role="status">{notice}</p>}
+    {!data && !error && <p className="py-6 text-muted-foreground">正在读取资源统计…</p>}
     {data && <>
-      <div>有效存储：{mib(data.storage.usedBytes)} / {data.storage.limitMiB} MiB</div>
-      <progress className="w-full" aria-label="存储使用率" max={100} value={Math.min(100, data.storage.usedBytes / (data.storage.limitMiB * 1024 * 1024) * 100)} />
-      <p className="text-xs text-muted-foreground">存储大小来自 Cloudflare SQLite databaseSize 接口，不包含 Analytics Engine 或其他 Worker 的数据。</p>
-      {data.storage.overLimit && <p role="alert" className="text-amber-600">有效存储仍超过清理阈值。若核心数据或近期对话占用较多，自动清理不能保证降到阈值以下。</p>}
-      <label className="block space-y-1">存储清理上限（MiB，默认 768）<Input aria-label="存储清理上限" type="number" min="64" max="10240" step="1" value={limit} onChange={e => setLimit(e.target.value)} /></label>
-      <p className="text-xs text-muted-foreground">每 5 分钟检查，达到上限后按时间清理最旧日志和对话，目标降至 90%。保护最近 1 小时的对话，不删除密钥、Catalog、额度和审计数据。这是自动清理阈值，并非强制磁盘配额；降低上限并保存可能立即删除旧记录。</p>
-      <Button disabled={busy || !Number.isInteger(Number(limit)) || Number(limit) < 64 || Number(limit) > 10240} onClick={() => run(async () => { await apiFetch('/api/runtime/storage', { method: 'PUT', body: JSON.stringify({ limitMiB: Number(limit) }) }); await load(); setNotice('已保存存储策略。') })}>保存并应用</Button>
-      {data.storage.lastCleanup && <p className="text-xs">本实例最近清理：{new Date(data.storage.lastCleanup.at).toLocaleString()}，删除日志 {data.storage.lastCleanup.logs} 条、对话 {data.storage.lastCleanup.conversations} 条。</p>}
-      <p>Analytics Engine：{data.analyticsEnabled ? '已绑定' : '未绑定'}；已提交 {data.emitted}，提交异常 {data.failed}</p>
-      <p>SQL 读取 {totals?.read.toLocaleString()} 行，写入 {totals?.written.toLocaleString()} 行</p>
-      <p className="text-xs text-muted-foreground">上述运行计数自 {new Date(data.startedAt).toLocaleString()} 起，实例重建后归零，不是 Cloudflare 账单数据。</p>
-      <details><summary className="cursor-pointer">SQL 来源明细</summary><div className="max-h-48 overflow-auto"><table className="w-full text-xs"><thead><tr><th>来源</th><th>调用</th><th>读取</th><th>写入</th></tr></thead><tbody>{data.sql.map(r => <tr key={r.source}><td>{r.source}</td><td>{r.calls}</td><td>{r.read}</td><td>{r.written}</td></tr>)}</tbody></table></div></details>
-      <p className="text-xs">Catalog 自动检查：每 {data.catalogSchedule.intervalHours} 小时；最近执行：{data.catalogSchedule.lastRunMs ? new Date(data.catalogSchedule.lastRunMs).toLocaleString() : '等待首次执行'}</p>
+      <dl className="divide-y rounded-lg border px-4">{[
+        ['有效存储', `${mib(data.storage.usedBytes)} MiB`],
+        ['清理阈值', `${data.storage.limitMiB} MiB`],
+        ['SQL 读取行数', totals?.read.toLocaleString()],
+        ['SQL 写入行数', totals?.written.toLocaleString()],
+        ['Analytics Engine', data.analyticsEnabled ? '已绑定' : '未绑定'],
+        ['分析事件提交 / 异常', `${data.emitted} / ${data.failed}`],
+        ['本实例启动时间', new Date(data.startedAt).toLocaleString()],
+        ['Catalog 自动检查', `每 ${data.catalogSchedule.intervalHours} 小时`],
+        ['最近自动检查', data.catalogSchedule.lastRunMs ? new Date(data.catalogSchedule.lastRunMs).toLocaleString() : '尚未执行'],
+      ].map(([label,value]) => <div className="flex flex-wrap justify-between gap-2 py-3" key={label}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium tabular-nums">{value}</dd></div>)}</dl>
+      {data.storage.overLimit && <p role="alert" className="text-amber-600">存储超过清理阈值，核心数据及近期对话会保留。</p>}
+      <h4 className="font-medium">SQL 来源明细</h4><div className="max-h-72 overflow-auto rounded-lg border"><table className="w-full text-left text-xs"><thead className="sticky top-0 bg-muted"><tr>{['来源','调用次数','读取行数','写入行数'].map(h => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{data.sql.map(r => <tr className="border-t" key={r.source}><td className="p-3 break-all">{r.source}</td><td className="p-3">{r.calls.toLocaleString()}</td><td className="p-3">{r.read.toLocaleString()}</td><td className="p-3">{r.written.toLocaleString()}</td></tr>)}{!data.sql.length && <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">暂无 SQL 统计</td></tr>}</tbody></table></div>
+      <details className="rounded-lg border p-4"><summary className="cursor-pointer font-medium">存储清理设置</summary><div className="mt-4 space-y-3">
+        <label className="block space-y-1">清理阈值（MiB）<Input aria-label="存储清理上限" type="number" min="64" max="10240" step="1" value={limit} onChange={e => setLimit(e.target.value)} /></label>
+        <p className="text-xs text-muted-foreground">默认 768 MiB。每 5 分钟检查，清理最旧日志与对话，保留最近 1 小时对话及核心数据。降低阈值并保存可能立即删除旧记录；此阈值并非硬性磁盘配额。</p>
+        <Button disabled={busy || !Number.isInteger(Number(limit)) || Number(limit) < 64 || Number(limit) > 10240} onClick={() => run(async () => { await apiFetch('/api/runtime/storage', { method: 'PUT', body: JSON.stringify({ limitMiB: Number(limit) }) }); await load(); setNotice('已保存存储策略。') })}>保存并应用</Button>
+        {data.storage.lastCleanup && <p className="text-xs">最近清理：{new Date(data.storage.lastCleanup.at).toLocaleString()} · 日志 {data.storage.lastCleanup.logs} 条 · 对话 {data.storage.lastCleanup.conversations} 条</p>}
+      </div></details>
     </>}
   </section>
 }

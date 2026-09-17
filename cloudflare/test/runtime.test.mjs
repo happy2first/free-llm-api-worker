@@ -219,6 +219,13 @@ test('catalog ownership, explicit conflicts, MCP authorization, restoration and 
       const skip = await request('/api/catalog/records/update', { ...r, conflict: 'skip' }); assert.equal((await skip.json()).skipped, true);
     }
     const mcp = async (name, args) => (await (await request('/api/catalog/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).json()).result;
+    const registration = { platform: 'managed-test', name: 'Managed test', protocol: 'openai-compatible', baseUrl: 'https://api.groq.com/openai/v1' };
+    const registered = await mcp('provider_register', registration);
+    assert.notEqual(registered.isError, true, JSON.stringify(registered));
+    assert.equal((await (await request('/api/keys/providers')).json()).providers.some(p => p.platform === 'managed-test'), true);
+    assert.equal((await request('/api/keys', { platform: 'managed-test', key: 'managed-fixture-key' })).status, 201);
+    assert.equal((await mcp('provider_register', registration)).isError, true);
+    assert.equal(JSON.parse((await mcp('provider_read', { platform: 'managed-test' })).content[0].text).provider.name, 'Managed test');
     for (const r of created) {
       const conflict = await mcp('catalog_update', r); assert.equal(conflict.isError, true);
       const result = await mcp('catalog_update', { ...r, conflict: 'replace', expectedRevision: r.revision, origin: 'provider_docs', extensions: { requiresCreditCard: false, evidenceLinks: ['https://example.com/docs'] } });

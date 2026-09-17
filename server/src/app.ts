@@ -1,3 +1,4 @@
+import { loadManagedProviders } from './services/provider-management.js';
 import { catalogRouter } from './routes/catalog.js';
 import express from 'express';
 import compression from 'compression';
@@ -96,6 +97,7 @@ function isTrustworthyOrigin(req: express.Request): boolean {
 
 export function createApp(config?: Config) {
   const cfg = config ?? loadConfig();
+  loadManagedProviders();
   const app = express();
   // TRUST_PROXY (#1024): opt-in trust of X-Forwarded-* from a reverse proxy.
   // false (default) ignores forwarded headers so direct callers cannot spoof

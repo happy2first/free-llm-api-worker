@@ -138,3 +138,30 @@ and this volatile status is excluded from Catalog edit revisions.
 
 The web dashboard/login brand and favicon use `client/public/logo.png`. Premium is
 hidden from navigation and command search; Catalog signed update logic is retained.
+
+### Provider registration over MCP
+
+The existing administrator endpoint `/api/catalog/mcp` now also exposes a separate
+Provider tool namespace: `provider_list`, `provider_read`, `provider_register`.
+Refresh the connector tool list to discover these tools. They do not alter the
+Catalog schema or store API secrets in Catalog.
+
+Workflow: verify the platform's official API documentation → register its stable
+platform ID, display name, `protocol: "openai-compatible"`, HTTPS `baseUrl` including
+its API prefix, and optional `signupUrl` → add models with that same platform ID
+using Catalog tools → refresh Keys and add the credential normally. The dynamic
+provider is listed in the key picker, provider groups, imports and proxy controls.
+Registration creates no model records and makes no free-quota guarantees.
+
+The initial registration adapter supports **OpenAI-compatible chat**; other
+protocols, embeddings and media still require dedicated adapters. Definitions are
+persisted independently in `managed_provider_registry_v1` and restored on startup.
+Official Catalog sync cannot overwrite them. Built-ins remain read-only. Conflicts
+return the existing record and require explicit `replace` plus `expectedRevision`,
+or `skip`. An endpoint cannot change while it has stored credentials. Requests
+recheck destination safety and reject redirects; no arbitrary code or headers are
+accepted. Existing Access/admin authentication remains required.
+
+Catalog UI now groups model browsing, update checks/history, and resources into
+separate views. Column filters/sorting and pagination are local; resources are
+shown as metric rows and a SQL-source table, fetched only on opening or refresh.

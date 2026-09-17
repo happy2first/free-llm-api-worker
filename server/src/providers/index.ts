@@ -565,3 +565,6 @@ export function getAllProviders(): BaseProvider[] {
 export function hasProvider(platform: Platform): boolean {
   return providers.has(platform);
 }
+
+// Internal lifecycle hook for persisted, administrator-managed registrations.
+export function unregisterManagedProvider(platform: Platform): void { providers.delete(platform); }
