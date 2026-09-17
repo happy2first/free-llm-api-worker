@@ -123,6 +123,7 @@ describe('migration round trip', () => {
         MCP_ENABLED_DEFAULT_FILENAME,
         RESPONSE_CACHE_FILENAME,
         '20260915_000001_catalog_management.ts',
+        '20260916_000001_catalog_timestamps.ts',
       ]);
     } finally {
       db.close();
