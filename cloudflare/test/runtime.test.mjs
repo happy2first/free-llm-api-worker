@@ -218,6 +218,8 @@ test('catalog ownership, explicit conflicts, MCP authorization, restoration and 
       assert.equal(conflict.status, 409); assert.equal((await conflict.json()).existing.revision, r.revision);
       const skip = await request('/api/catalog/records/update', { ...r, conflict: 'skip' }); assert.equal((await skip.json()).skipped, true);
     }
+    const discovery = await (await request('/api/catalog/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json();
+    assert.deepEqual(discovery.result.tools.map(t => t.name).sort(), ['catalog_search', 'catalog_read', 'catalog_create', 'catalog_update', 'catalog_delete', 'catalog_restore', 'provider_list', 'provider_read', 'provider_register'].sort());
     const mcp = async (name, args) => (await (await request('/api/catalog/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })).json()).result;
     const registration = { platform: 'managed-test', name: 'Managed test', protocol: 'openai-compatible', baseUrl: 'https://api.groq.com/openai/v1' };
     const registered = await mcp('provider_register', registration);

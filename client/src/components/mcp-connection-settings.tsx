@@ -37,7 +37,9 @@ export function McpConnectionSettings() {
       const init = await call('initialize', 1, { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'settings-connection-test', version: '1.0' } })
       const listed = await call('tools/list', 2)
       if (!init.protocolVersion || !Array.isArray(listed.tools)) throw new Error('MCP 握手或工具列表不完整')
-      setMessage(`连接成功：协议 ${init.protocolVersion}，${listed.tools.length} 个工具。已验证当前浏览器管理会话；外部客户端仍需独立认证。`)
+      const toolNames = new Set(listed.tools.map((tool: { name: string }) => tool.name))
+      const providerReady = ['provider_list', 'provider_read', 'provider_register'].every(name => toolNames.has(name))
+      setMessage(`连接成功：协议 ${init.protocolVersion}，${listed.tools.length} 个工具。Provider 注册${providerReady ? '已就绪；若客户端未显示，请刷新客户端工具列表或重新连接' : '未就绪，请检查当前部署版本'}。已验证当前浏览器管理会话；外部客户端仍需独立认证。`)
     } catch (error) {
       setMessage(`测试失败：${controller.signal.aborted ? '请求超时或已取消' : (error as Error).message}。请确认当前域名部署完成并重新登录 Access；登录重定向不能作为 MCP 响应。`)
     } finally {

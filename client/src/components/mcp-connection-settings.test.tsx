@@ -15,6 +15,7 @@ it('uses the browser origin and verifies initialize plus tools/list without writ
     const button = [...container.querySelectorAll('button')].find(b => b.textContent === '测试目录 MCP 连接')!
     await act(async () => button.click())
     expect(container.textContent).toContain('连接成功')
+    expect(container.textContent).toContain('Provider 注册未就绪')
     expect(vi.mocked(apiFetch).mock.calls.map(([, options]) => JSON.parse(String(options?.body)).method)).toEqual(['initialize', 'tools/list'])
     expect(vi.mocked(apiFetch).mock.calls[0][1]?.redirect).toBe('error')
   } finally { await act(async () => root.unmount()) }

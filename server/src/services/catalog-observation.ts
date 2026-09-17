@@ -5,7 +5,7 @@ export function catalogSnapshot(db: Db): Map<string, string> {
   const entries = new Map<string, string>();
   for (const [kind, table] of Object.entries(catalogTables)) {
     for (const row of db.prepare(`SELECT * FROM ${table}`).all() as Record<string, any>[]) {
-      const { created_at_ms, updated_at_ms, ...value } = row;
+      const { created_at_ms: _createdAt, updated_at_ms: _updatedAt, ...value } = row;
       if (kind === 'quirk') value.targets = db.prepare('SELECT platform, model_glob FROM quirk_targets WHERE quirk_id = ? ORDER BY platform, model_glob').all(row.id);
       entries.set(identity(kind, kind === 'quirk' ? '' : row.platform, kind === 'quirk' ? row.slug : row.model_id), JSON.stringify(value));
     }
