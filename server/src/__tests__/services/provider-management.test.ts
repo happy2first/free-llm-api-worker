@@ -64,8 +64,7 @@ it('uses manual redirects and rejects 3xx for every managed-provider transport p
 });
 
 it('exercises siliconflow-cn valid key, invalid key, model catalog and real chat/stream adapter paths', async () => {
-  await registerManagedProvider(managedSiliconflowTransport);
-  const provider = getProvider(siliconflow.platform as Platform) as OpenAICompatProvider;
+  const provider = getProvider('siliconflow-cn') as OpenAICompatProvider;
   const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const href = String(url);
     expect(href.startsWith('https://api.siliconflow.cn/v1/')).toBe(true);
