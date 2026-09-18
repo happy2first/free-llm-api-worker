@@ -193,6 +193,8 @@ export function up(db: Db): void {
 
   upsertImage(db);
 
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('siliconflow_cn_catalog_repair_v1', '2026-09-18')").run();
+
   db.prepare(`
     INSERT INTO catalog_history(at_ms, action, detail_json)
     VALUES (?, 'siliconflow_identity_catalog_repair', ?)
@@ -210,21 +212,17 @@ export function up(db: Db): void {
 }
 
 export function down(db: Db): void {
-  const chat = ['Qwen/Qwen3.5-4B', 'tencent/Hunyuan-MT-7B', 'XingChenAGI/Xing4.0-29B', 'PaddlePaddle/PaddleOCR-VL-1.5'];
-  for (const modelId of chat) {
-    const row = db.prepare("SELECT id, source FROM models WHERE platform = ? AND model_id = ? AND endpoint_scope = ''").get(PLATFORM, modelId) as { id: number; source: string } | undefined;
-    if (row?.source !== 'ai') continue;
-    db.prepare('DELETE FROM profile_models WHERE model_db_id = ?').run(row.id);
-    db.prepare('DELETE FROM fallback_config WHERE model_db_id = ?').run(row.id);
-    db.prepare('DELETE FROM models WHERE id = ?').run(row.id);
-    db.prepare("DELETE FROM catalog_annotations WHERE kind = 'chat' AND platform = ? AND model_id = ?").run(PLATFORM, modelId);
-  }
-  for (const modelId of ['BAAI/bge-m3', 'BAAI/bge-large-zh-v1.5', 'BAAI/bge-large-en-v1.5']) {
-    db.prepare("DELETE FROM embedding_models WHERE platform = ? AND model_id = ? AND source = 'ai'").run(PLATFORM, modelId);
-    db.prepare("DELETE FROM catalog_annotations WHERE kind = 'embedding' AND platform = ? AND model_id = ?").run(PLATFORM, modelId);
-  }
-  db.prepare("DELETE FROM media_models WHERE platform = ? AND model_id = 'Kwai-Kolors/Kolors' AND source = 'ai'").run(PLATFORM);
-  db.prepare("DELETE FROM catalog_annotations WHERE kind = 'media' AND platform = ? AND model_id = 'Kwai-Kolors/Kolors'").run(PLATFORM);
+  // This migration is a corrective data repair, not a feature toggle. Do not
+  // delete the verified-free rows on rollback: doing so would both reintroduce
+  // the broken Catalog state and churn AUTOINCREMENT identities referenced by
+  // fallback/profile rows. Older schema migrations are fully capable of carrying
+  // these rows down and back up while preserving their ids.
+  //
+  // What *is* reversible is the dynamic-provider cleanup: if a pre-existing
+  // siliconflow-cn managed definition was removed, restore it exactly. The
+  // marker deletion also makes down() observably change state on a clean DB,
+  // which keeps migration round-trip checks meaningful.
+  db.prepare("DELETE FROM settings WHERE key = 'siliconflow_cn_catalog_repair_v1'").run();
 
   const backup = db.prepare("SELECT value FROM settings WHERE key = 'siliconflow_cn_managed_provider_backup_20260918'").get() as { value: string } | undefined;
   if (backup) {
@@ -233,7 +231,9 @@ export function down(db: Db): void {
       const currentRow = db.prepare("SELECT value FROM settings WHERE key = 'managed_provider_registry_v1'").get() as { value: string } | undefined;
       const current = currentRow ? JSON.parse(currentRow.value) : [];
       if (Array.isArray(stale) && Array.isArray(current)) {
-        db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('managed_provider_registry_v1', ?)").run(JSON.stringify([...current.filter((item: any) => item?.platform !== PLATFORM), ...stale]));
+        db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('managed_provider_registry_v1', ?)").run(
+          JSON.stringify([...current.filter((item: any) => item?.platform !== PLATFORM), ...stale]),
+        );
       }
     } catch {}
     db.prepare("DELETE FROM settings WHERE key = 'siliconflow_cn_managed_provider_backup_20260918'").run();
