@@ -8,13 +8,24 @@ import { ModelsTabs } from '@/components/models-tabs'
 
 type CatalogData = { records: RecordEntry[]; status: { appliedVersion: string | null; appliedTier: string | null; generatedAt: string | null; lastSyncMs: number | null; lastError: string | null; official: unknown; autoSync: { intervalHours: number; enabled: boolean }; providersWithoutChatModels: string[]; history: { id: number; at_ms: number; action: string; detail_json: string }[] } }
 const stringify = (value: unknown) => JSON.stringify(value, null, 2)
+const catalogKinds = ['chat','embedding','media','quirk']
+const newCatalogRecord = (kind = 'chat') => ({
+  kind,
+  platform: kind === 'quirk' ? '' : 'nvidia',
+  modelId: '',
+  values: kind === 'quirk' ? { title: '', body: '', severity: 'info', targets: [] } : kind === 'embedding' ? { display_name: '', family: '', dimensions: 1024, enabled: 1 } : kind === 'media' ? { display_name: '', modality: 'image', enabled: 1 } : { display_name: '', context_window: null, rpm_limit: null, enabled: 1 },
+  origin: 'manual',
+  extensions: { credentialRequirement: '', freeQuota: '', requiresCreditCard: null, requiresPhone: null, requiresKyc: null, signupUrl: '', regions: [], notes: '', evidenceLinks: [] },
+})
 function CatalogFields({ json, onChange, fixedIdentity, disabled }: { json: string; onChange: (value: string) => void; fixedIdentity: boolean; disabled: boolean }) {
   let draft: RecordEntry
   try { draft = JSON.parse(json); if (!draft?.values) return null } catch { return null }
   const change = (key: string, value: unknown, core = false) => onChange(stringify(core ? { ...draft, values: { ...draft.values, [key]: value } } : { ...draft, [key]: value }))
+  const changeKind = (nextKind: string) => onChange(stringify({ ...newCatalogRecord(nextKind), origin: draft.origin ?? 'manual', extensions: draft.extensions ?? newCatalogRecord(nextKind).extensions }))
   const numeric = draft.kind === 'chat' ? ['context_window','rpm_limit','rpd_limit','tpm_limit','tpd_limit','intelligence_rank','speed_rank'] : draft.kind === 'embedding' ? ['dimensions','max_input_tokens','priority'] : draft.kind === 'media' ? ['priority'] : []
   const text = draft.kind === 'quirk' ? ['title','body','severity'] : draft.kind === 'chat' ? ['display_name','size_label','monthly_token_budget'] : draft.kind === 'embedding' ? ['display_name','family','quota_label'] : ['display_name','modality','quota_label']
   return <fieldset disabled={disabled} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    {!fixedIdentity && <label className="text-xs">类型<select aria-label="新增记录类型" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm" value={draft.kind} onChange={e => changeKind(e.target.value)}>{catalogKinds.map(k => <option key={k} value={k}>{k}</option>)}</select></label>}
     <label className="text-xs">Provider / platform<Input disabled={fixedIdentity || draft.kind === 'quirk'} value={draft.platform ?? ''} onChange={e => change('platform', e.target.value)} /></label>
     <label className="text-xs">Model ID / Quirk slug<Input disabled={fixedIdentity} value={draft.modelId ?? ''} onChange={e => change('modelId', e.target.value)} /></label>
     <label className="text-xs">Origin<Input value={draft.origin ?? ''} onChange={e => change('origin', e.target.value)} /></label>
@@ -26,7 +37,6 @@ function CatalogFields({ json, onChange, fixedIdentity, disabled }: { json: stri
 export default function CatalogPage() {
   const [data, setData] = useState<CatalogData | null>(null)
   const [tab, setTab] = useState('models')
-  const [kind, setKind] = useState('chat')
   const [editor, setEditor] = useState<string | null>(null)
   const [selected, setSelected] = useState<RecordEntry | null>(null)
   const [error, setError] = useState('')
@@ -71,9 +81,7 @@ export default function CatalogPage() {
     {tab === 'models' && <section className="space-y-4">
     {!!data?.status.providersWithoutChatModels.length && <p className="rounded-lg border border-amber-400/50 bg-amber-500/5 p-3 text-sm" title="已配置凭证但没有启用聊天模型，请检查更新或手动添加准确的 Model ID。">待配置聊天模型：{data.status.providersWithoutChatModels.join('、')}</p>}
     <div className="flex flex-wrap gap-3">
-      <select aria-label="新增记录类型" className="rounded-lg border bg-background px-3 text-sm" value={kind} onChange={e => setKind(e.target.value)}>{['chat','embedding','media','quirk'].map(k => <option key={k} value={k}>{k}</option>)}</select>
-      <Button disabled={busy} onClick={() => { setSelected(null); setConflict(null); setEditor(stringify({ kind: kind || 'chat', platform: kind === 'quirk' ? '' : 'nvidia', modelId: '', values: kind === 'quirk' ? { title: '', body: '', severity: 'info', targets: [] } : kind === 'embedding' ? { display_name: '', family: '', dimensions: 1024, enabled: 1 } : kind === 'media' ? { display_name: '', modality: 'image', enabled: 1 } : { display_name: '', context_window: null, rpm_limit: null, enabled: 1 }, origin: 'manual', extensions: { credentialRequirement: '', freeQuota: '', requiresCreditCard: null, requiresPhone: null, requiresKyc: null, signupUrl: '', regions: [], notes: '', evidenceLinks: [] } })) }}>新增记录</Button>
-
+      <Button disabled={busy} onClick={() => { setSelected(null); setConflict(null); setEditor(stringify(newCatalogRecord())) }}>新增记录</Button>
     </div>
     {!data ? <p className="p-10 text-center text-muted-foreground">{error ? '目录加载失败' : '正在加载目录…'}</p> : <CatalogTable records={data.records} busy={busy} onEdit={r => { setSelected(r); setConflict(null); setEditor(stringify(r)); }} />}
     </section>}
