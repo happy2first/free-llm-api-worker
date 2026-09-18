@@ -43,7 +43,7 @@ class ManagedProvider extends OpenAICompatProvider {
 }
 function stored(): Stored[] { return JSON.parse(getSetting(SETTING) ?? '[]'); }
 function revision(row: Stored) { return createHash('sha256').update(JSON.stringify(row)).digest('hex'); }
-function view(row: Stored) { return { ...row, revision: revision(row), readOnly: false, capabilities: row.platform === 'siliconflow-cn' ? ['chat', 'image', 'audio'] : ['chat'] }; }
+function view(row: Stored) { return { ...row, revision: revision(row), readOnly: false, capabilities: ['chat'] }; }
 function install(row: Stored) {
   register(new ManagedProvider({ platform: row.platform as Platform, name: row.name, baseUrl: row.baseUrl }));
   managed.add(row.platform);

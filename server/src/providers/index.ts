@@ -298,15 +298,19 @@ register(new OpenAICompatProvider({
   baseUrl: 'https://api.reka.ai/v1',
 }));
 
-// SiliconFlow — OpenAI-compatible (api.siliconflow.com/v1). Registered mainly
-// for its FREE generative-media models (FLUX.1-schnell image, CosyVoice2 TTS),
-// which route via services/media.ts; OpenAI-compatible chat is supported too.
-// Key from siliconflow.com, no card; validateKey uses GET /v1/models (200 with
-// a valid key). Catalog rows live in the catalog (premium → age into free).
+// SiliconFlow has two independent public sites/account systems. Keep their
+// provider ids, keys and Catalog rows strictly separate. Provider registration
+// only supplies the transport; Catalog decides which verified free/credit-backed
+// models, if any, are routable in this installation.
 register(new OpenAICompatProvider({
   platform: 'siliconflow',
-  name: 'SiliconFlow',
+  name: 'SiliconFlow Global',
   baseUrl: 'https://api.siliconflow.com/v1',
+}));
+register(new OpenAICompatProvider({
+  platform: 'siliconflow-cn',
+  name: 'SiliconFlow China',
+  baseUrl: 'https://api.siliconflow.cn/v1',
 }));
 
 // Routeway — OpenAI-compatible aggregator (api.routeway.ai/v1). Free models

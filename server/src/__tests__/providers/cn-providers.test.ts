@@ -13,6 +13,12 @@ import type { Platform } from '@freellmapi/shared/types.js';
 
 const CN_PLATFORMS: { platform: Platform; baseUrl: string; envPrefixes: string[]; jsonAliases: string[] }[] = [
   {
+    platform: 'siliconflow-cn',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    envPrefixes: ['SILICONFLOW_CN_', 'SILICONFLOW_CHINA_'],
+    jsonAliases: ['siliconflow-cn', 'siliconflow-china'],
+  },
+  {
     platform: 'qianfan',
     baseUrl: 'https://qianfan.baidubce.com/v2',
     envPrefixes: ['QIANFAN_', 'BAIDU_', 'ERNIE_'],
@@ -65,5 +71,18 @@ describe('Chinese domestic providers: key import', () => {
     for (const alias of jsonAliases) {
       expect(AUTH_JSON_PROVIDER_MAP[alias]).toBe(platform);
     }
+  });
+});
+
+
+describe('SiliconFlow site identity', () => {
+  it('keeps Global and China as distinct built-in providers', () => {
+    const global = getProvider('siliconflow') as unknown as { platform: string; baseUrl: string };
+    const china = getProvider('siliconflow-cn') as unknown as { platform: string; baseUrl: string };
+    expect(global.platform).toBe('siliconflow');
+    expect(global.baseUrl).toBe('https://api.siliconflow.com/v1');
+    expect(china.platform).toBe('siliconflow-cn');
+    expect(china.baseUrl).toBe('https://api.siliconflow.cn/v1');
+    expect(global.baseUrl).not.toBe(china.baseUrl);
   });
 });

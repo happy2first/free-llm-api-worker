@@ -2,13 +2,13 @@
 
 # 支持的平台
 
-[`shared/types.ts`（第 59 行）](../../../shared/types.ts) 中的 `Platform` 联合类型是平台身份的唯一事实来源；[`server/src/providers/index.ts`](../../../server/src/providers/index.ts) 中的运行时注册表必须与它保持一致。联合类型目前声明了 **41 个成员**：
+[`shared/types.ts`（第 59 行）](../../../shared/types.ts) 中的 `Platform` 联合类型是平台身份的唯一事实来源；[`server/src/providers/index.ts`](../../../server/src/providers/index.ts) 中的运行时注册表必须与它保持一致。联合类型目前声明了 **46 个成员**：
 
-- **39 个内置平台**，启动时注册为适配器；
-- 加上 **`custom`** 占位（一个按 API 密钥逐个构建的真实 OpenAI 兼容适配器，因为它的 base URL 由用户提供），注册表共 **40 个条目**；
+- **44 个内置平台**，启动时注册为适配器；
+- 加上 **`custom`** 占位（一个按 API 密钥逐个构建的真实 OpenAI 兼容适配器，因为它的 base URL 由用户提供），注册表共 **45 个条目**；
 - 再加 **`sambanova`**——保留在类型联合中但不再注册：它在 V23（2026 年 6 月）被移除，当时它的免费额度被永久收回（一次性 $5 试用额度用完后，每次聊天调用都返回 402「需要绑定支付方式」）。
 
-39 个内置平台中，**7 个使用专属原生适配器**，**32 个搭载 `OpenAICompatProvider`** 对着各自提供方专属的 base URL。三个平台以免密钥方式注册（`kilo`、`ovh`，以及 `aihorde`——它用文档记载的匿名哨兵密钥自动配置）。README 里的公开目录招牌数字约为 29 家免费提供方 / 251 个模型系列 / 358 个免费端点——比联合类型少，因为若干已注册的网关把免费名册放在托管目录里维护，而不是随每个二进制一起发布。
+44 个内置平台中，**10 个使用专属原生适配器**，**34 个搭载 `OpenAICompatProvider`** 对着各自提供方专属的 base URL。三个平台以免密钥方式注册（`kilo`、`ovh`，以及 `aihorde`——它用文档记载的匿名哨兵密钥自动配置）。README 里的公开目录招牌数字约为 29 家免费提供方 / 251 个模型系列 / 358 个免费端点——比联合类型少，因为若干已注册的网关把免费名册放在托管目录里维护，而不是随每个二进制一起发布。
 
 ## 目录
 
@@ -36,7 +36,8 @@
 | `ovh` | OVHcloud AI Endpoints | 免密钥 | OpenAI 兼容 | 匿名档：每 IP 每模型每分钟 2 次请求（实测更严）；鉴权档要求绑定了支付方式的 Public Cloud 项目（`migrateModelsV26`）。 |
 | `agnes` | Agnes AI | 带密钥 | OpenAI 兼容 | 专有模型以 $0/词元促销提供；约 30 个并发请求后开始出现 429；为推理首字节设 60s 超时。 |
 | `reka` | Reka | 带密钥 | OpenAI 兼容 | 通过每月循环的额度赠金免费（无需信用卡）；余额只在仪表盘可见。 |
-| `siliconflow` | SiliconFlow | 带密钥 | OpenAI 兼容 | 主要为 FREE 生成媒体模型而注册（FLUX.1-schnell 图像、CosyVoice2 TTS），经由 `services/media.ts` 路由。 |
+| `siliconflow` | SiliconFlow Global | 带密钥 | OpenAI 兼容 | 国际站 `.com`（`api.siliconflow.com/v1`），与中国站账号/密钥体系独立。当前 Serverless 模型按量计费，新账号仅有有限赠送额度，因此 Catalog 必须按当前证据记录免费/赠金条件，不能默认图像/TTS 免费。 |
+| `siliconflow-cn` | SiliconFlow China | 带密钥 | OpenAI 兼容 | 中国站 `.cn`（`api.siliconflow.cn/v1`），与国际站账号/密钥体系独立。Catalog 必须独立维护，禁止在两个站点之间复制密钥或模型权益结论。 |
 | `routeway` | Routeway | 带密钥 | OpenAI 兼容 | 要求浏览器风格的 User-Agent（Cloudflare 对其他值报错误 1010）；实测免费池约 5 rpm，比文档写的 20 rpm / 200 rpd 更严。 |
 | `bazaarlink` | BazaarLink | 带密钥 | OpenAI 兼容 | 只有 `auto:free` 路由进了目录——直接指定模型 id 是付费的（#385）。 |
 | `ainative` | AINative Studio | 带密钥 | OpenAI 兼容 | 宣称每月循环约 1000 万词元的免费配额；在真实账号确认之前按未核实处理。 |

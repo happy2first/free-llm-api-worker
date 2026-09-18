@@ -114,10 +114,13 @@ export type Platform =
   // image/video); free via a recurring monthly credit grant, key from
   // platform.reka.ai (no card).
   | 'reka'
-  // SiliconFlow — OpenAI-compatible. Registered for its FREE generative-media
-  // models (FLUX.1-schnell image, CosyVoice2 TTS) routed via services/media.ts;
-  // chat is supported too. Key from siliconflow.com (no card).
+  // SiliconFlow Global — OpenAI-compatible international site. The .com site
+  // has its own account/key namespace and pay-as-you-go catalog; model/free-credit
+  // facts are maintained separately from the provider transport.
   | 'siliconflow'
+  // SiliconFlow China — separate .cn account/key namespace. Do not alias or
+  // migrate keys/models between this and siliconflow; both are first-class.
+  | 'siliconflow-cn'
   // Routeway — OpenAI-compatible aggregator. Free ':free' models ($0) on a
   // rate-limited pool (~5 rpm observed); requires a browser User-Agent (CF
   // blocks others). Key from routeway.ai (no card).

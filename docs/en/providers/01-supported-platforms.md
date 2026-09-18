@@ -2,13 +2,13 @@
 
 # Supported platforms
 
-The `Platform` union in [`shared/types.ts` (line 59)](../../../shared/types.ts) is the single source of truth for platform identity; the runtime registry in [`server/src/providers/index.ts`](../../../server/src/providers/index.ts) must match it. The union currently declares **45 members**:
+The `Platform` union in [`shared/types.ts` (line 59)](../../../shared/types.ts) is the single source of truth for platform identity; the runtime registry in [`server/src/providers/index.ts`](../../../server/src/providers/index.ts) must match it. The union currently declares **46 members**:
 
-- **43 built-in platforms** registered as adapters at startup,
-- plus the **`custom`** placeholder (a real OpenAI-compatible adapter built per API key, since its base URL is user-supplied), giving **44 entries** in the registry map,
+- **44 built-in platforms** registered as adapters at startup,
+- plus the **`custom`** placeholder (a real OpenAI-compatible adapter built per API key, since its base URL is user-supplied), giving **45 entries** in the registry map,
 - plus **`sambanova`**, retained in the type union but no longer registered — it was dropped in V23 (June 2026) when its free tier was permanently retired (every chat call returns 402 "payment method required" once the one-time $5 trial credit lapses).
 
-Of the 43 built-in platforms, **10 use dedicated adapters** and **33 ride `OpenAICompatProvider`** directly against a provider-specific base URL. Three platforms are registered keyless (`kilo`, `ovh`, and `aihorde`, which auto-configures with its documented anonymous sentinel key). The public catalog headline is smaller than the union because several registered gateways keep their free rosters in the hosted catalog rather than shipping them to every binary.
+Of the 44 built-in platforms, **10 use dedicated adapters** and **34 ride `OpenAICompatProvider`** directly against a provider-specific base URL. Three platforms are registered keyless (`kilo`, `ovh`, and `aihorde`, which auto-configures with its documented anonymous sentinel key). The public catalog headline is smaller than the union because several registered gateways keep their free rosters in the hosted catalog rather than shipping them to every binary.
 
 ## Catalog
 
@@ -40,7 +40,8 @@ Of the 43 built-in platforms, **10 use dedicated adapters** and **33 ride `OpenA
 | `ovh` | OVHcloud AI Endpoints | Keyless | OpenAI-compat | Anonymous tier: 2 req/min per IP per model (observed stricter); authenticated tier requires a Public Cloud project with payment method on file (`migrateModelsV26`). |
 | `agnes` | Agnes AI | Keyed | OpenAI-compat | Proprietary models served at $0/token promotionally; ~30 concurrent requests before 429s; 60s timeout for reasoning TTFB. |
 | `reka` | Reka | Keyed | OpenAI-compat | Free via recurring monthly credit grant (no card); balance dashboard-only. |
-| `siliconflow` | SiliconFlow | Keyed | OpenAI-compat | Registered mainly for FREE generative-media models (FLUX.1-schnell image, CosyVoice2 TTS) routed via `services/media.ts`. |
+| `siliconflow` | SiliconFlow Global | Keyed | OpenAI-compat | International `.com` site (`api.siliconflow.com/v1`). Separate account/key namespace from China. Current serverless models are pay-as-you-go; the global signup includes limited free credit, so Catalog rows must describe the actual current credit/free evidence rather than assuming image/TTS are free. |
+| `siliconflow-cn` | SiliconFlow China | Keyed | OpenAI-compat | China `.cn` site (`api.siliconflow.cn/v1`). Separate account/key namespace from Global. Catalog rows are maintained independently; never copy keys or model entitlement claims across the two sites. |
 | `routeway` | Routeway | Keyed | OpenAI-compat | Requires browser-style User-Agent (Cloudflare rejects others with error 1010); free pool observed stricter (~5 rpm) than the documented 20 rpm / 200 rpd. |
 | `bazaarlink` | BazaarLink | Keyed | OpenAI-compat | Only the `auto:free` route is cataloged — direct model ids are paid (#385). |
 | `ainative` | AINative Studio | Keyed | OpenAI-compat | Advertises recurring ~10M tokens/month free allocation; quota treated as unverified until confirmed by a real account. |
