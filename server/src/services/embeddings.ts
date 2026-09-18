@@ -123,6 +123,8 @@ export const EMBEDDING_PLATFORMS = new Set([
   'huggingface',
   'cohere',
   'sealion',
+  'siliconflow',
+  'siliconflow-cn',
 ]);
 
 interface ProviderCallResult {
@@ -271,6 +273,10 @@ async function callProvider(row: EmbeddingModelRow, credential: ProviderCredenti
       return openAiStyleEmbed('https://models.github.ai/inference/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
     case 'sealion':
       return openAiStyleEmbed('https://api.sea-lion.ai/v1/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
+    case 'siliconflow':
+      return openAiStyleEmbed('https://api.siliconflow.com/v1/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
+    case 'siliconflow-cn':
+      return openAiStyleEmbed('https://api.siliconflow.cn/v1/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
     case 'cloudflare': {
       // Key is stored as "account_id:token".
       const sep = key.indexOf(':');
