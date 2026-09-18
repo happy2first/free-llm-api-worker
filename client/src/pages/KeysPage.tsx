@@ -100,9 +100,6 @@ export default function KeysPage() {
       />
 
       <div className="space-y-8">
-        {import.meta.env.VITE_RUNTIME === 'cloudflare' && (
-          <p className="rounded-lg border p-4 text-sm text-muted-foreground">Cloudflare Workers · Workers AI</p>
-        )}
         {tab === 'apiKey' && (
           <>
             <UnifiedKeySection />
