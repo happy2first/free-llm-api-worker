@@ -5,6 +5,10 @@ import { getDb, getSetting } from '../db/index.js';
 import { catalogTables, identity, type CatalogKind } from './catalog-ownership.js';
 import { getSyncState, syncCatalog, routableContextWindow } from './catalog-sync.js';
 import { ensureAllModelsInProfiles } from './profile-models.js';
+import { hasProvider } from '../providers/index.js';
+import { MEDIA_PLATFORMS, TRANSCRIPTION_PLATFORMS, VIDEO_PLATFORMS } from './media.js';
+import { EMBEDDING_PLATFORMS } from './embeddings.js';
+import type { Platform } from '@freellmapi/shared/types.js';
 
 export class CatalogError extends Error {
   constructor(public status: number, message: string, public existing?: unknown, public proposed?: unknown) { super(message); }
@@ -140,6 +144,24 @@ export function mutateCatalog(action: 'create' | 'update' | 'delete' | 'restore'
   const kind = checkIdentity(input);
   if (!['create','update','delete','restore'].includes(action)) throw new CatalogError(400, 'Unknown action');
   if (input.conflict !== undefined && !['replace','skip'].includes(input.conflict)) throw new CatalogError(400, 'conflict must be replace or skip');
+  if (action !== 'delete' && kind !== 'quirk') {
+    if (!hasProvider(input.platform as Platform)) {
+      throw new CatalogError(400, `Unknown provider platform '${input.platform}'. Register the provider first, then maintain its Catalog records.`);
+    }
+    if (kind === 'embedding' && !EMBEDDING_PLATFORMS.has(input.platform)) {
+      throw new CatalogError(400, `Provider '${input.platform}' has no embedding adapter in this runtime; do not add embedding Catalog rows until adapter support exists.`);
+    }
+    if (kind === 'media') {
+      const modality = String(input.values?.modality ?? readCatalog(input)?.values.modality ?? '');
+      const supported = modality === 'video' ? VIDEO_PLATFORMS.has(input.platform)
+        : modality === 'transcription' ? TRANSCRIPTION_PLATFORMS.has(input.platform)
+          : ['image','audio'].includes(modality) ? MEDIA_PLATFORMS.has(input.platform)
+            : true;
+      if (!supported) {
+        throw new CatalogError(400, `Provider '${input.platform}' has no runtime adapter for media modality '${modality}'. Registering a provider transport does not enable media automatically.`);
+      }
+    }
+  }
   const db = getDb();
   return db.transaction(() => {
     const existing = readCatalog(input);
