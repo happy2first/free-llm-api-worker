@@ -35,16 +35,16 @@ function upsertChat(
   db: Db,
   row: { modelId: string; displayName: string; size: string; vision?: boolean; evidence: string[]; freeQuota: string; notes: string },
 ) {
-  const existing = db.prepare('SELECT id, source FROM models WHERE platform = ? AND model_id = ?').get(PLATFORM, row.modelId) as { id: number; source: string } | undefined;
+  const existing = db.prepare("SELECT id, source FROM models WHERE platform = ? AND model_id = ? AND endpoint_scope = ''").get(PLATFORM, row.modelId) as { id: number; source: string } | undefined;
   if (existing?.source === 'user') return;
 
   db.prepare(`
     INSERT INTO models
       (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
        rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget,
-       context_window, enabled, supports_vision, source)
-    VALUES (?, ?, ?, 999, 999, ?, NULL, NULL, NULL, NULL, '', NULL, 1, ?, 'ai')
-    ON CONFLICT(platform, model_id) DO UPDATE SET
+       context_window, enabled, supports_vision, source, endpoint_scope)
+    VALUES (?, ?, ?, 999, 999, ?, NULL, NULL, NULL, NULL, '', NULL, 1, ?, 'ai', '')
+    ON CONFLICT(platform, model_id, endpoint_scope) DO UPDATE SET
       display_name = excluded.display_name,
       size_label = excluded.size_label,
       enabled = 1,
@@ -52,7 +52,7 @@ function upsertChat(
       source = CASE WHEN models.source = 'user' THEN models.source ELSE 'ai' END
   `).run(PLATFORM, row.modelId, row.displayName, row.size, row.vision ? 1 : 0);
 
-  const model = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get(PLATFORM, row.modelId) as { id: number };
+  const model = db.prepare("SELECT id FROM models WHERE platform = ? AND model_id = ? AND endpoint_scope = ''").get(PLATFORM, row.modelId) as { id: number };
   const hasFallback = db.prepare('SELECT 1 FROM fallback_config WHERE model_db_id = ?').get(model.id);
   if (!hasFallback) {
     const max = db.prepare('SELECT COALESCE(MAX(priority), 0) AS p FROM fallback_config').get() as { p: number };
@@ -212,7 +212,7 @@ export function up(db: Db): void {
 export function down(db: Db): void {
   const chat = ['Qwen/Qwen3.5-4B', 'tencent/Hunyuan-MT-7B', 'XingChenAGI/Xing4.0-29B', 'PaddlePaddle/PaddleOCR-VL-1.5'];
   for (const modelId of chat) {
-    const row = db.prepare("SELECT id, source FROM models WHERE platform = ? AND model_id = ?").get(PLATFORM, modelId) as { id: number; source: string } | undefined;
+    const row = db.prepare("SELECT id, source FROM models WHERE platform = ? AND model_id = ? AND endpoint_scope = ''").get(PLATFORM, modelId) as { id: number; source: string } | undefined;
     if (row?.source !== 'ai') continue;
     db.prepare('DELETE FROM profile_models WHERE model_db_id = ?').run(row.id);
     db.prepare('DELETE FROM fallback_config WHERE model_db_id = ?').run(row.id);
