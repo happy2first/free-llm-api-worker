@@ -167,6 +167,20 @@ describe('media service', () => {
       expect(r.images[0].url).toBe('https://x/y.png');
     });
 
+    it('SiliconFlow CN: image generation uses api.siliconflow.cn and its own key namespace', async () => {
+      addMedia('siliconflow-cn', 'Kwai-Kolors/Kolors', 'image');
+      addKey('siliconflow-cn', 'sf-cn-test-key');
+      const fetchMock = vi.fn(async () => jsonResponse({ images: [{ url: 'https://cn.example/image.png' }] }));
+      globalThis.fetch = fetchMock as any;
+      const r = await runImageGeneration('Kwai-Kolors/Kolors', { prompt: 'x', size: '1024x1024' });
+      expect(r.platform).toBe('siliconflow-cn');
+      expect(r.images[0].url).toBe('https://cn.example/image.png');
+      expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.siliconflow.cn/v1/images/generations');
+      expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+        Authorization: 'Bearer sf-cn-test-key',
+      });
+    });
+
     it('unknown model id → 400', async () => {
       addMedia('nvidia', 'real-model', 'image');
       addKey('nvidia');
@@ -436,6 +450,24 @@ describe('media service', () => {
         'FunAudioLLM/CosyVoice2-0.5B:diana',
         'FunAudioLLM/CosyVoice2-0.5B:alex',
       ]);
+    });
+
+    it('SiliconFlow CN CosyVoice uses the domestic audio endpoint', async () => {
+      addMedia('siliconflow-cn', 'FunAudioLLM/CosyVoice2-0.5B', 'audio');
+      addKey('siliconflow-cn', 'sf-cn-test-key');
+      const fetchMock = vi.fn(async () =>
+        new Response(Buffer.from('COSY-CN'), { status: 200, headers: { 'content-type': 'audio/mpeg' } }));
+      globalThis.fetch = fetchMock as any;
+      const r = await runSpeech('FunAudioLLM/CosyVoice2-0.5B', { input: '你好', voice: 'diana' });
+      expect(r.platform).toBe('siliconflow-cn');
+      expect(r.audio.toString()).toBe('COSY-CN');
+      expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.siliconflow.cn/v1/audio/speech');
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(init.headers).toMatchObject({ Authorization: 'Bearer sf-cn-test-key' });
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        model: 'FunAudioLLM/CosyVoice2-0.5B',
+        voice: 'FunAudioLLM/CosyVoice2-0.5B:diana',
+      });
     });
 
     it('Pollinations openai-audio: keeps OpenAI voices and defaults unknown names (keyless)', async () => {

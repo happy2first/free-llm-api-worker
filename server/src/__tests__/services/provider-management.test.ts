@@ -109,6 +109,7 @@ it('exercises siliconflow-cn valid key, invalid key, model catalog and real chat
   });
   vi.stubGlobal('fetch', fetch);
 
+  expect(readManagedProvider('siliconflow-cn')).toMatchObject({ capabilities: ['chat', 'image', 'audio'] });
   expect(await provider.validateKey('sf-valid-key')).toBe(true);
   await expect(provider.validateKey('sf-bad-key')).resolves.toMatchObject({ valid: false, error: expect.stringContaining('HTTP 401') });
 

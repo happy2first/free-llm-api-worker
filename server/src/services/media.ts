@@ -18,7 +18,7 @@ import { isOnCooldown, setCooldown } from './ratelimit.js';
 
 /** Platforms with a media adapter below. catalog-sync gates media rows on this
  *  (decoupled from the chat provider registry — e.g. SiliconFlow is media-only). */
-export const MEDIA_PLATFORMS = new Set(['nvidia', 'pollinations', 'cloudflare', 'siliconflow', 'google']);
+export const MEDIA_PLATFORMS = new Set(['nvidia', 'pollinations', 'cloudflare', 'siliconflow', 'siliconflow-cn', 'google']);
 
 /** Video uses a dedicated optional catalog registry so binaries that predate
  *  this modality ignore the rows instead of accidentally ingesting them as
@@ -153,6 +153,10 @@ const GEMINI_OPENAI_VOICE_MAP: Record<string, string> = {
 function normalizedVoice(voice?: string): string | undefined {
   const value = voice?.trim().toLowerCase();
   return value || undefined;
+}
+
+function siliconFlowBaseUrl(platform: string): string {
+  return platform === 'siliconflow-cn' ? 'https://api.siliconflow.cn/v1' : 'https://api.siliconflow.com/v1';
 }
 
 function siliconFlowVoice(modelId: string, requested?: string): string {
@@ -459,8 +463,9 @@ async function callImageProvider(
       const buf = Buffer.from(await r.arrayBuffer());
       return [{ b64_json: buf.toString('base64') }];
     }
-    case 'siliconflow': {
-      const r = await mediaFetch('https://api.siliconflow.com/v1/images/generations', 'siliconflow', 'image', {
+    case 'siliconflow':
+    case 'siliconflow-cn': {
+      const r = await mediaFetch(`${siliconFlowBaseUrl(row.platform)}/images/generations`, row.platform, 'image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify({ model: row.model_id, prompt: p.prompt, image_size: `${w}x${h}` }),
@@ -642,9 +647,10 @@ async function callSpeechProvider(
       if (!b64) throw new MediaError('cloudflare returned no audio', 502);
       return { audio: Buffer.from(b64, 'base64'), contentType: 'audio/mpeg' };
     }
-    case 'siliconflow': {
+    case 'siliconflow':
+    case 'siliconflow-cn': {
       const fmt = p.format ?? 'mp3';
-      const r = await mediaFetch('https://api.siliconflow.com/v1/audio/speech', 'siliconflow', 'audio', {
+      const r = await mediaFetch(`${siliconFlowBaseUrl(row.platform)}/audio/speech`, row.platform, 'audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify({
