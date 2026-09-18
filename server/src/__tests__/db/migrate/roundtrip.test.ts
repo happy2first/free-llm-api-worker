@@ -38,6 +38,7 @@ const REQUEST_CALLER_FILENAME = '20260901_000003_request_caller.ts';
 const ANALYTICS_LATENCY_PERCENTILE_INDEX_FILENAME = '20260902_000001_analytics_latency_percentile_index.ts';
 const MCP_ENABLED_DEFAULT_FILENAME = '20260903_000001_mcp_enabled_default.ts';
 const RESPONSE_CACHE_FILENAME = '20260903_000002_response_cache.ts';
+const SILICONFLOW_IDENTITY_CATALOG_REPAIR_FILENAME = '20260918_000001_siliconflow_identity_catalog_repair.ts';
 
 interface SchemaRow {
   type: string;
@@ -122,6 +123,9 @@ describe('migration round trip', () => {
         ANALYTICS_LATENCY_PERCENTILE_INDEX_FILENAME,
         MCP_ENABLED_DEFAULT_FILENAME,
         RESPONSE_CACHE_FILENAME,
+        '20260915_000001_catalog_management.ts',
+        '20260916_000001_catalog_timestamps.ts',
+        SILICONFLOW_IDENTITY_CATALOG_REPAIR_FILENAME,
       ]);
     } finally {
       db.close();

@@ -1,3 +1,5 @@
+import { McpConnectionSettings } from './mcp-connection-settings'
+import { CloudflareResources } from './cloudflare-resources'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
@@ -582,7 +584,7 @@ function GeneralSection({ active }: { active: boolean }) {
           />
         )}
       />
-      <UpdateChecker active={active} />
+      {import.meta.env.VITE_RUNTIME !== 'cloudflare' && <UpdateChecker active={active} />}
     </>
   )
 }
@@ -1051,7 +1053,7 @@ export function SettingsDialog({
 
           {/* min-height keeps the popup from resizing as sections are switched. */}
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:min-h-[27rem] sm:px-6 sm:py-6">
-            {section === 'general' && <GeneralSection active={open} />}
+            {section === 'general' && <><GeneralSection active={open} /><McpConnectionSettings />{import.meta.env.VITE_RUNTIME === 'cloudflare' && <CloudflareResources active={open} />}</>}
             {loading && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />

@@ -1,10 +1,13 @@
+import type { Platform } from '@freellmapi/shared/types.js';
+import { listManagedProviders } from '../services/provider-management.js';
+import { runtimePolicy } from '../lib/runtime-policy.js';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
 import path from 'path';
 import { getDb } from '../db/index.js';
-import { resolveProvider, getAllProviders } from '../providers/index.js';
+import { resolveProvider, getAllProviders, hasProvider } from '../providers/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
 import { parseKeysFromFile, stripJsoncComments, stripTrailingCommas } from '../lib/key-parser.js';
 import { assessProviderUrl } from '../lib/url-guard.js';
@@ -23,17 +26,7 @@ import { KEY_PROXY_URL_ERROR, KEY_PROXY_URL_MAX, decryptProxyUrl, encryptProxyUr
 
 export const keysRouter = Router();
 
-// Active providers — must match providers/index.ts registrations + shared/types.ts Platform.
-// Moonshot and MiniMax direct integrations were dropped in V4. HuggingFace
-// was dropped in V4 and re-added in V13 via the router.huggingface.co route.
-// SambaNova was dropped in V23 (free tier permanently retired).
-const PLATFORMS = [
-  'google', 'groq', 'cerebras', 'sail', 'electronhub', 'experiential', 'router9', 'septor', 'bai', 'radeon', 'nvidia', 'mistral',
-  'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
-  'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'ovh', 'agnes', 'reka', 'siliconflow',
-  'routeway', 'bazaarlink', 'ainative', 'aion', 'anyapi', 'requesty', 'navy', 'nara', 'sealion', 'orcarouter', 'unorouter', 'xkiro', 'modelscope',
-  'qianfan', 'volcengine', 'longcat', 'xfyun', 'aihorde', 'custom',
-] as const;
+const platformSchema = z.string().refine(value => hasProvider(value as Platform), 'Unknown provider: register it first').transform(value => value as Platform);
 
 const ALLOWED_IMPORT_EXTENSIONS = new Set(['.env', '.json', '.jsonc', '.md', '.txt', '.csv']);
 
@@ -59,7 +52,7 @@ const upload = multer({
 const proxyUrlSchema = z.string().max(KEY_PROXY_URL_MAX).refine(isValidKeyProxyUrl, { message: KEY_PROXY_URL_ERROR });
 
 const addKeySchema = z.object({
-  platform: z.enum(PLATFORMS),
+  platform: platformSchema,
   key: z.string().optional(),
   label: z.string().optional(),
   proxyUrl: proxyUrlSchema.optional(),
@@ -81,7 +74,7 @@ const updateKeySchema = z.object({
 const importKeySchema = z.object({
   keyName: z.string().optional(),
   keyValue: z.string().min(1),
-  platform: z.enum(PLATFORMS),
+  platform: platformSchema,
   // A custom row names an ENDPOINT, so it only means something with the URL
   // the export file carried alongside it (#687).
   baseUrl: z.string().optional(),
@@ -137,7 +130,7 @@ function splitRawKey(rawKey: string) {
   };
 }
 
-function insertImportedKey(platform: (typeof PLATFORMS)[number], keyName: string, keyValue: string) {
+function insertImportedKey(platform: Platform, keyName: string, keyValue: string) {
   if (platform === 'custom') {
     throw new Error('Custom providers must be added with a base URL');
   }
@@ -187,6 +180,7 @@ function enabledModelCount(platform: string): number {
 // explain the silence instead of leaving the user staring at an empty list.
 function noModelsNotice(platform: string): string | undefined {
   if (enabledModelCount(platform) > 0) return undefined;
+  if (runtimePolicy.cloudflare) return `Key saved, but no enabled ${platform} chat models are in the catalog. Open Models → Catalog to check signed updates or add a verified model with platform=${platform}. Saving a key does not import models or guarantee free quota.`;
   return (
     `Key saved, but no ${platform} models are in your current catalog yet. ` +
     `Newer providers are published to the premium catalog first and appear ` +
@@ -213,6 +207,7 @@ keysRouter.get('/providers', (_req: Request, res: Response) => {
   `).all() as Array<{ platform: string; total_keys: number; enabled_keys: number }>;
   const countsByPlatform = new Map(countRows.map(r => [r.platform, r]));
 
+  const registrations = new Map(listManagedProviders().map(p => [p.platform, p]));
   const providers = getAllProviders()
     .filter(p => p.platform !== 'custom')
     .map(p => {
@@ -221,6 +216,7 @@ keysRouter.get('/providers', (_req: Request, res: Response) => {
       return {
         platform: p.platform,
         name: p.name,
+        signupUrl: (registrations.get(p.platform) as { signupUrl?: string } | null)?.signupUrl,
         keyless: p.keyless,
         configured: keyCount > 0,
         keyCount,
@@ -390,7 +386,7 @@ function skipsReauth(req: Request): boolean {
 // a local request on the desktop build (see skipsReauth).
 keysRouter.get('/export', (req: Request, res: Response) => {
   const user = (req as any).user;
-  if (!skipsReauth(req)) {
+  if (!res.locals.hostAdmin && !skipsReauth(req)) {
     const password = req.headers['x-reauth-password'] as string | undefined;
     if (!password || !verifyCredentials(user.email, password)) {
       res.status(403).json({ error: { message: 'Password verification required to export keys', type: 'authentication_error' } });
@@ -511,7 +507,7 @@ keysRouter.get('/export', (req: Request, res: Response) => {
 // skipsReauth; a LAN client of that same desktop server still needs one).
 keysRouter.post('/:id/reveal', (req: Request, res: Response) => {
   const user = (req as any).user;
-  if (!skipsReauth(req)) {
+  if (!res.locals.hostAdmin && !skipsReauth(req)) {
     const password = req.headers['x-reauth-password'] as string | undefined;
     if (!password || !verifyCredentials(user.email, password)) {
       res.status(403).json({ error: { message: 'Password verification required to reveal a key', type: 'authentication_error' } });
@@ -1184,7 +1180,7 @@ keysRouter.post('/import', (req: Request, res: Response, next: NextFunction) => 
           skipped.push(keyName);
           continue;
         }
-        const platformParse = z.enum(PLATFORMS).safeParse(parsedKey.platform);
+        const platformParse = platformSchema.safeParse(parsedKey.platform);
         if (!platformParse.success) {
           skipped.push(keyName);
           continue;
@@ -1477,7 +1473,7 @@ keysRouter.delete('/:id', (req: Request, res: Response) => {
 // Toggle all keys for a platform
 keysRouter.patch('/platform/:platform', (req: Request, res: Response) => {
   const platform = req.params.platform as string;
-  if (!(PLATFORMS as readonly string[]).includes(platform)) {
+  if (!hasProvider(platform as Platform)) {
     res.status(400).json({ error: { message: `Invalid platform '${platform}'` } });
     return;
   }

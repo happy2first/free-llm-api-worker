@@ -116,7 +116,7 @@ function AuthForm({ mode, onAuthed }: { mode: 'setup' | 'login'; onAuthed: () =>
   return (
     <Centered>
       <div className="mb-6 flex items-center gap-2">
-        <span className="inline-block size-2 rounded-full bg-foreground" />
+        <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" width={32} height={32} className="size-8 object-contain" />
         <span className="font-semibold tracking-tight text-sm">FreeLLMAPI</span>
       </div>
       <div className="rounded-3xl border bg-card p-6">
@@ -254,7 +254,7 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   return (
     <Centered>
       <div className="mb-6 flex items-center gap-2">
-        <span className="inline-block size-2 rounded-full bg-foreground" />
+        <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" width={32} height={32} className="size-8 object-contain" />
         <span className="font-semibold tracking-tight text-sm">FreeLLMAPI</span>
       </div>
       <div className="rounded-3xl border bg-card p-6">

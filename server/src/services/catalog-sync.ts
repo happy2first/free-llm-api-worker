@@ -1,3 +1,5 @@
+import { catalogSnapshot, recordCatalogCheck } from './catalog-observation.js';
+import { protectedCatalogEntries, identity } from './catalog-ownership.js';
 import crypto from 'crypto';
 import type { Db } from '../db/types.js';
 import { getDb, getSetting, setSetting } from '../db/index.js';
@@ -249,7 +251,7 @@ function isCatalog(value: unknown): value is Catalog {
   );
 }
 
-function routableContextWindow(platform: string, modelId: string, contextWindow: number | null): number | null {
+export function routableContextWindow(platform: string, modelId: string, contextWindow: number | null): number | null {
   if (platform === 'github' && modelId === 'openai/gpt-4.1') return 8000;
   return contextWindow;
 }
@@ -282,6 +284,8 @@ export function applyCatalog(db: Db, catalog: Catalog): NonNullable<SyncResult['
 }
 
 function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['counts']> {
+  const protectedEntries = protectedCatalogEntries(db);
+  const protectedEntry = (kind: string, platform: string, modelId: string) => protectedEntries.has(identity(kind, platform, modelId));
   const counts = { updated: 0, inserted: 0, removed: 0, skippedUnknownPlatform: 0, quirks: 0 };
 
   const selectModel = db.prepare('SELECT id, enabled, source FROM models WHERE platform = ? AND model_id = ?');
@@ -362,6 +366,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
           counts.skippedUnknownPlatform++;
           continue;
         }
+        if (protectedEntry('media', m.platform, m.modelId)) continue;
         if (isCatalogModelTombstoned(db, 'media', m.platform, m.modelId)) continue;
         inMediaCatalog.add(`${m.platform}:${m.modelId}`);
         const mrow = selectMedia.get(m.platform, m.modelId) as { id: number; enabled: number } | undefined;
@@ -393,6 +398,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
         counts.skippedUnknownPlatform++;
         continue;
       }
+      if (protectedEntry('chat', m.platform, m.modelId)) continue;
       if (isCatalogModelTombstoned(db, 'chat', m.platform, m.modelId)) continue;
       // A model auto-retired from a 410/end-of-life response (#634) is disabled,
       // not deleted. A catalog that STILL lists it — and lists it enabled — is
@@ -445,6 +451,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
           counts.skippedUnknownPlatform++;
           continue;
         }
+        if (protectedEntry('media', m.platform, m.modelId)) continue;
         if (isCatalogModelTombstoned(db, 'media', m.platform, m.modelId)) continue;
         inVideoCatalog.add(`${m.platform}:${m.modelId}`);
         const meta = typeof m.providerModelId === 'string'
@@ -477,6 +484,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
           counts.skippedUnknownPlatform++;
           continue;
         }
+        if (protectedEntry('embedding', m.platform, m.modelId)) continue;
         inEmbeddingCatalog.add(`${m.platform}:${m.modelId}`);
         const row = selectEmbedding.get(m.platform, m.modelId) as { id: number; enabled: number } | undefined;
         const fields = {
@@ -513,6 +521,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
           counts.skippedUnknownPlatform++;
           continue;
         }
+        if (protectedEntry('media', m.platform, m.modelId)) continue;
         if (isCatalogModelTombstoned(db, 'media', m.platform, m.modelId)) continue;
         inTranscriptionCatalog.add(`${m.platform}:${m.modelId}`);
         const meta: Record<string, unknown> = {};
@@ -573,6 +582,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
     const deleteFb = db.prepare('DELETE FROM fallback_config WHERE model_db_id = ?');
     const deleteModel = db.prepare('DELETE FROM models WHERE id = ?');
     for (const c of candidates) {
+      if (protectedEntry('chat', c.platform, c.model_id)) continue;
       if (!hasProvider(c.platform as Platform)) continue; // not catalog-managed by this binary
       if (!inCatalog.has(`${c.platform}:${c.model_id}`)) {
         deleteFb.run(c.id);
@@ -593,6 +603,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
       .all() as { id: number; platform: string; model_id: string }[];
     const deleteMedia = db.prepare('DELETE FROM media_models WHERE id = ?');
     for (const c of mediaCandidates) {
+      if (protectedEntry('media', c.platform, c.model_id)) continue;
       if (!MEDIA_PLATFORMS.has(c.platform)) continue; // not media-managed by this binary
       if (!inMediaCatalog.has(`${c.platform}:${c.model_id}`)) {
         deleteMedia.run(c.id);
@@ -607,6 +618,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
         .prepare("SELECT id, platform, model_id FROM media_models WHERE modality = 'video'")
         .all() as { id: number; platform: string; model_id: string }[];
       for (const c of videoCandidates) {
+        if (protectedEntry('media', c.platform, c.model_id)) continue;
         if (!VIDEO_PLATFORMS.has(c.platform)) continue;
         if (!inVideoCatalog.has(`${c.platform}:${c.model_id}`)) {
           deleteMedia.run(c.id);
@@ -623,6 +635,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
         .prepare("SELECT id, platform, model_id FROM media_models WHERE modality = 'transcription'")
         .all() as { id: number; platform: string; model_id: string }[];
       for (const c of sttCandidates) {
+        if (protectedEntry('media', c.platform, c.model_id)) continue;
         if (!TRANSCRIPTION_PLATFORMS.has(c.platform)) continue;
         if (!inTranscriptionCatalog.has(`${c.platform}:${c.model_id}`)) {
           deleteMedia.run(c.id);
@@ -646,6 +659,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
         .all() as { id: number; platform: string; model_id: string }[];
       const deleteEmbedding = db.prepare('DELETE FROM embedding_models WHERE id = ?');
       for (const c of embeddingCandidates) {
+        if (protectedEntry('embedding', c.platform, c.model_id)) continue;
         if (!EMBEDDING_PLATFORMS.has(c.platform)) continue;
         if (!inEmbeddingCatalog.has(`${c.platform}:${c.model_id}`)) {
           deleteEmbedding.run(c.id);
@@ -654,9 +668,13 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
       }
     }
 
-    // Quirks are pure content: replace wholesale.
-    db.prepare('DELETE FROM quirk_targets').run();
-    db.prepare('DELETE FROM quirks').run();
+    // Replace official quirks only; local/AI content and targets keep their IDs.
+    const officialQuirks = db.prepare("SELECT id, slug FROM quirks WHERE source = 'catalog'").all() as { id: number; slug: string }[];
+    for (const q of officialQuirks) {
+      if (protectedEntry('quirk', '', q.slug)) continue;
+      db.prepare('DELETE FROM quirk_targets WHERE quirk_id = ?').run(q.id);
+      db.prepare('DELETE FROM quirks WHERE id = ?').run(q.id);
+    }
     const insertQuirk = db.prepare(
       `INSERT INTO quirks (slug, title, body, severity, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?)`,
     );
@@ -665,6 +683,7 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
     );
     const now = Date.now();
     for (const q of catalog.quirks) {
+      if (protectedEntry('quirk', '', q.slug)) continue;
       const info = insertQuirk.run(q.slug, q.title, q.body, q.severity, now, now);
       for (const t of q.targets) insertTarget.run(info.lastInsertRowid, t.platform ?? null, t.modelGlob ?? null);
       counts.quirks++;
@@ -680,7 +699,18 @@ function applyCatalogInner(db: Db, catalog: Catalog): NonNullable<SyncResult['co
  * `force` skips the `since` short-circuit — used right after a license key is
  * added or removed, where the tier can change without the version changing.
  */
-export async function syncCatalog(force = false): Promise<SyncResult> {
+let activeSync: Promise<SyncResult & { diff: { added: number; updated: number; removed: number }; checkedAt: number }> | undefined;
+export function syncCatalog(force = false, trigger = 'scheduled') {
+  if (activeSync) return activeSync;
+  activeSync = (async () => {
+    const db = getDb(), before = catalogSnapshot(db);
+    const result = await performCatalogSync(force);
+    return { ...result, ...recordCatalogCheck(db, before, result, trigger) };
+  })().finally(() => { activeSync = undefined; });
+  return activeSync;
+}
+async function performCatalogSync(force = false): Promise<SyncResult> {
+  setSetting('catalog_last_check_ms', String(Date.now()));
   const db = getDb();
   const key = getSetting(SETTING_LICENSE_KEY);
   const applied = getSetting(SETTING_APPLIED_VERSION);

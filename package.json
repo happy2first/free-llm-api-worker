@@ -25,11 +25,23 @@
     "db:migration:down": "npm run db:migration:down -w server",
     "db:migration:fresh": "npm run db:migration:fresh -w server",
     "db:migration:status": "npm run db:migration:status -w server",
-    "db:migration:create": "npm run db:migration:create -w server"
+    "db:migration:create": "npm run db:migration:create -w server",
+    "build:cloudflare:server": "node cloudflare/build.mjs",
+    "build:cloudflare": "npm run build:cloudflare:server && VITE_RUNTIME=cloudflare npm run build -w client",
+    "dev:cloudflare": "wrangler dev",
+    "deploy:cloudflare": "wrangler deploy",
+    "test:cloudflare": "node cloudflare/build.mjs --test && node --test cloudflare/test/*.test.mjs",
+    "typegen:cloudflare": "wrangler types cloudflare/worker-configuration.d.ts --include-env=false",
+    "typecheck:cloudflare": "npm run typegen:cloudflare && tsc -p cloudflare/tsconfig.json"
   },
   "devDependencies": {
+    "@cfworker/json-schema": "4.1.1",
     "concurrently": "^9.1.2",
-    "jsdom": "^27.4.0"
+    "esbuild": "0.28.2",
+    "jose": "6.2.3",
+    "jsdom": "^27.4.0",
+    "miniflare": "5.20260911.0-alpha",
+    "wrangler": "4.131.1"
   },
   "engines": {
     "node": ">=20.18.0 <25.0.0",

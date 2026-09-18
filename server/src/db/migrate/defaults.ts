@@ -1,3 +1,6 @@
+import * as catalogTimestamps from '../migrations/20260916_000001_catalog_timestamps.js';
+import * as catalogManagement from '../migrations/20260915_000001_catalog_management.js';
+import * as siliconflowIdentityCatalogRepair from '../migrations/20260918_000001_siliconflow_identity_catalog_repair.js';
 import type { Db } from '../types.js';
 import * as legacyBaseline from '../migrations/20260101_000000_legacy_baseline.js';
 import * as customProviderModalities from '../migrations/20260627_000001_custom_provider_modalities.js';
@@ -114,4 +117,7 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: ANALYTICS_LATENCY_PERCENTILE_INDEX_FILENAME, module: analyticsLatencyPercentileIndex },
   { filename: MCP_ENABLED_DEFAULT_FILENAME, module: mcpEnabledDefault },
   { filename: RESPONSE_CACHE_FILENAME, module: responseCache },
+  { filename: '20260915_000001_catalog_management.ts', module: catalogManagement },
+  { filename: '20260916_000001_catalog_timestamps.ts', module: catalogTimestamps },
+  { filename: '20260918_000001_siliconflow_identity_catalog_repair.ts', module: siliconflowIdentityCatalogRepair },
 ];

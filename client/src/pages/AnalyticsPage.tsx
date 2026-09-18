@@ -709,6 +709,7 @@ export default function AnalyticsPage() {
 
   return (
     <div className="analytics-viz">
+      {import.meta.env.VITE_RUNTIME === 'cloudflare' && <p className="mb-4 rounded border p-3 text-sm">Cloudflare：成功请求分析已移至 Analytics Engine。此页保留历史与异常数据，不代表完整请求总量。近期请求与 SQL 统计可在 Models → Catalog 查看。</p>}
       <style>{chartVars}</style>
       <PageHeader
         title={t('analytics.title')}

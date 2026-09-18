@@ -649,6 +649,31 @@ describe('applyCatalog: generative media meta', () => {
     expect(metaOf('@cf/black-forest-labs/flux-2-klein-4b')).toBeNull();
   });
 
+  it('accepts SiliconFlow CN image and TTS rows into media_models', () => {
+    const models = existingAsCatalogModels();
+    models.push(baseModel({
+      platform: 'siliconflow-cn',
+      modelId: 'Kwai-Kolors/Kolors',
+      displayName: 'Kolors',
+      modality: 'image',
+    }));
+    models.push(baseModel({
+      platform: 'siliconflow-cn',
+      modelId: 'FunAudioLLM/CosyVoice2-0.5B',
+      displayName: 'CosyVoice2',
+      modality: 'audio',
+    }));
+    const counts = applyCatalog(getDb(), catalogOf(models));
+    expect(counts.skippedUnknownPlatform).toBe(0);
+    const rows = getDb().prepare(
+      "SELECT model_id, modality FROM media_models WHERE platform = 'siliconflow-cn' ORDER BY modality",
+    ).all() as { model_id: string; modality: string }[];
+    expect(rows).toEqual([
+      { model_id: 'FunAudioLLM/CosyVoice2-0.5B', modality: 'audio' },
+      { model_id: 'Kwai-Kolors/Kolors', modality: 'image' },
+    ]);
+  });
+
   it('a non-string requestStyle rejects the whole payload', () => {
     const catalog = imageCatalog('multipart');
     (catalog.models[catalog.models.length - 2] as any).requestStyle = 42;

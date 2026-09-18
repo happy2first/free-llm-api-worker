@@ -1,7 +1,8 @@
+import CatalogPage from './pages/CatalogPage'
 import { useState, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ChevronDown, KeyRound, LogOut, Menu, MoreHorizontal, Search, Settings, Sparkles } from 'lucide-react'
+import { ChevronDown, KeyRound, LogOut, Menu, MoreHorizontal, Search, Settings } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -21,7 +22,6 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { Toaster } from '@/components/toaster'
 import { UpdateReminder } from '@/components/update-reminder'
-import { usePremium } from '@/hooks/use-premium'
 import { I18nProvider, useI18n } from '@/i18n'
 import { logout } from '@/lib/api'
 import { toast } from '@/lib/toast'
@@ -70,13 +70,13 @@ const navItems = [
   { to: '/keys', labelKey: 'nav.keys' },
   { to: '/agents', labelKey: 'nav.agents' },
   { to: '/analytics', labelKey: 'nav.analytics' },
-  { to: '/premium', labelKey: 'nav.premium' },
 ]
 
 // The modality pages behind "Models"; surfaced in the nav dropdown and
 // the mobile submenu so Fusion/Embeddings/Image/Audio are discoverable without
 // first landing on the chat table.
 const modelItems = [
+  { to: '/models/catalog', labelKey: 'Catalog' },
   { to: '/models/chat', labelKey: 'models.chatModelsTab' },
   { to: '/models/embeddings', labelKey: 'models.embeddingsTab' },
   { to: '/models/image', labelKey: 'models.imageTab' },
@@ -134,7 +134,7 @@ function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-70">
-      <span className="inline-block size-2 rounded-full bg-foreground" />
+      <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" width={32} height={32} className="size-8 object-contain" />
       <span className="font-semibold tracking-tight text-sm">FreeLLMAPI</span>
     </Link>
   )
@@ -155,43 +155,37 @@ if (isDesktopApp) {
 }
 
 function AccountMenuItems({
-  showUpgrade,
-  upgradeLabel,
   settingsLabel,
   signOutLabel,
   changeEmailLabel,
   changePasswordLabel,
-  onUpgrade,
   onOpenSettings,
   onChangeEmail,
   onChangePassword,
 }: {
-  showUpgrade: boolean
-  upgradeLabel: string
   settingsLabel: string
   signOutLabel: string
   changeEmailLabel: string
   changePasswordLabel: string
-  onUpgrade: () => void
   onOpenSettings: () => void
   onChangeEmail: () => void
   onChangePassword: () => void
 }) {
   return (
     <>
-      {showUpgrade && (
-        <DropdownMenuItem onClick={onUpgrade}>
-          <Sparkles />
-          {upgradeLabel}
-        </DropdownMenuItem>
-      )}
       <DropdownMenuItem onClick={onOpenSettings}>
         <Settings />
         {settingsLabel}
       </DropdownMenuItem>
+      {import.meta.env.VITE_RUNTIME === 'cloudflare' && (
+        <DropdownMenuItem onClick={() => { window.location.href = '/cdn-cgi/access/logout' }}>
+          <LogOut />
+          {signOutLabel}
+        </DropdownMenuItem>
+      )}
       {/* Desktop signs in with a hidden local account, so it has no credentials
           to change and no session to end. */}
-      {!isDesktopApp && (
+      {!isDesktopApp && import.meta.env.VITE_RUNTIME !== 'cloudflare' && (
         <>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onChangeEmail}>
@@ -218,8 +212,6 @@ function Navbar() {
   const navigate = useNavigate()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [credentialsMode, setCredentialsMode] = useState<'password' | 'email' | null>(null)
-  const { data: premium, licensed, isLoading: premiumLoading, isError: premiumError } = usePremium()
-  const showUpgrade = Boolean(premium) && !licensed && !premiumLoading && !premiumError
 
   return (
     <>
@@ -258,7 +250,7 @@ function Navbar() {
                     <DropdownMenuContent align="start" className="w-44">
                       {menu.items.map((entry) => (
                         <DropdownMenuItem key={entry.to} onClick={() => navigate(entry.to)}>
-                          {t(entry.labelKey)}
+                          {entry.labelKey === 'Catalog' ? 'Catalog' : t(entry.labelKey)}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuContent>
@@ -293,13 +285,10 @@ function Navbar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <AccountMenuItems
-                  showUpgrade={showUpgrade}
-                  upgradeLabel={t('nav.upgrade')}
                   settingsLabel={t('nav.settings')}
                   signOutLabel={t('nav.signOut')}
                   changeEmailLabel={t('auth.changeEmail')}
                   changePasswordLabel={t('auth.changePassword')}
-                  onUpgrade={() => navigate('/premium')}
                   onOpenSettings={() => setSettingsOpen(true)}
                   onChangeEmail={() => setCredentialsMode('email')}
                   onChangePassword={() => setCredentialsMode('password')}
@@ -329,7 +318,7 @@ function Navbar() {
                         <DropdownMenuSubContent>
                           {menu.items.map((entry) => (
                             <DropdownMenuItem key={entry.to} onClick={() => navigate(entry.to)}>
-                              {t(entry.labelKey)}
+                              {entry.labelKey === 'Catalog' ? 'Catalog' : t(entry.labelKey)}
                             </DropdownMenuItem>
                           ))}
                         </DropdownMenuSubContent>
@@ -347,13 +336,10 @@ function Navbar() {
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <AccountMenuItems
-                  showUpgrade={showUpgrade}
-                  upgradeLabel={t('nav.upgrade')}
                   settingsLabel={t('nav.settings')}
                   signOutLabel={t('nav.signOut')}
                   changeEmailLabel={t('auth.changeEmail')}
                   changePasswordLabel={t('auth.changePassword')}
-                  onUpgrade={() => navigate('/premium')}
                   onOpenSettings={() => setSettingsOpen(true)}
                   onChangeEmail={() => setCredentialsMode('email')}
                   onChangePassword={() => setCredentialsMode('password')}
@@ -441,6 +427,7 @@ function App() {
                     <Routes>
                       <Route path="/" element={<Navigate to="/models/chat" replace />} />
                       <Route path="/models" element={<Navigate to="/models/chat" replace />} />
+                      <Route path="/models/catalog" element={<CatalogPage />} />
                       <Route path="/models/chat" element={<FallbackPage />} />
                       <Route path="/models/chat/:id" element={<ModelDetailPage />} />
                       <Route path="/models/fusion" element={<FusionPage />} />
@@ -468,7 +455,7 @@ function App() {
                 </PageContainer>
                 <Toaster />
                 <CommandPalette />
-                <UpdateReminder />
+                {import.meta.env.VITE_RUNTIME !== 'cloudflare' && <UpdateReminder />}
               </AppShell>
             </AuthGate>
           </BrowserRouter>

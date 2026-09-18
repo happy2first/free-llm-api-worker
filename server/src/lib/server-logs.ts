@@ -1,3 +1,4 @@
+import { runtimePolicy } from './runtime-policy.js';
 /**
  * The dashboard's server-log store.
  *
@@ -287,7 +288,7 @@ function hasTable(db: Db): boolean {
 }
 
 function persist(entry: ServerLogEntry): void {
-  if (persisting) return;
+  if (runtimePolicy.cloudflare || persisting) return;
   persisting = true;
   try {
     const db = tryDb();
@@ -355,6 +356,7 @@ function ensureSeeded(): void {
 }
 
 function seedNow(): void {
+  if (runtimePolicy.cloudflare) { seeded = true; return; }
   const db = tryDb();
   if (!db || !hasTable(db)) return;
   seeded = true;
@@ -475,6 +477,7 @@ export function queryLogs(query: LogQuery = {}): ServerLogEntry[] {
 export function clearLogs(): void {
   ensureSeeded();
   ring = [];
+  if (runtimePolicy.cloudflare) return;
   const db = tryDb();
   if (!db) return;
   try {

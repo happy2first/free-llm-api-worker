@@ -1,3 +1,4 @@
+import { useProviderOptions } from './use-provider-options'
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
@@ -8,7 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Globe } from 'lucide-react'
 import { useI18n } from '@/i18n'
-import { PLATFORMS, CUSTOM_GROUP } from './shared'
+import { CUSTOM_GROUP } from './shared'
 import type { ApiKey } from '../../../../shared/types'
 import type { ProxyMode } from '../../../../shared/types'
 
@@ -29,6 +30,7 @@ function hostOf(url: string): string {
 
 export function ProxySettingsSection() {
   const { t } = useI18n()
+  const platforms = useProviderOptions()
   const queryClient = useQueryClient()
   const [proxyUrl, setProxyUrl] = useState('')
   const [proxyMode, setProxyMode] = useState<ProxyMode>('forward')
@@ -207,7 +209,7 @@ export function ProxySettingsSection() {
         <div className="mt-4 border-t pt-3">
           <p className="text-xs font-medium mb-2">{t('keys.routeViaProxy')}</p>
           <div className="grid gap-1.5 sm:grid-cols-2">
-            {[...PLATFORMS, CUSTOM_GROUP]
+            {[...platforms, CUSTOM_GROUP]
               .filter(p => keys.some(k => k.platform === p.value))
               .map(p => {
                 const routed = !(data?.bypassPlatforms ?? []).includes(p.value)

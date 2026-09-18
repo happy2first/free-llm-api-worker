@@ -17,6 +17,12 @@ const runtimeRequire = createRequire(import.meta.url);
 
 let db: Db;
 
+/** Bind a host-owned synchronous database (e.g. Durable Object SQLite).
+ * The host owns migrations, encryption initialization and connection lifetime. */
+export function bindDb(database: Db): void {
+  db = database;
+}
+
 export function getDb(): Db {
   if (!db) {
     throw new Error('Database not initialized. Call initDb() or connectDb() first.');

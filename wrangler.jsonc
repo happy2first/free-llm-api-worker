@@ -1,0 +1,62 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "free-llm-api-worker",
+  "main": "cloudflare/dist/worker.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "keep_vars": true,
+  "build": {
+    "command": "npm run build:cloudflare"
+  },
+  "assets": {
+    "directory": "client/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GATEWAY",
+        "class_name": "Gateway"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "Gateway"
+      ]
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "NODE_ENV": "production",
+    "IMAGE_NORMALIZE": "off"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "2026091501",
+      "simple": {
+        "limit": 240,
+        "period": 60
+      }
+    }
+  ],
+  // Enable Analytics Engine in the target account before deploying this binding.
+  "analytics_engine_datasets": [
+    {
+      "binding": "REQUEST_ANALYTICS",
+      "dataset": "freellm_requests"
+    }
+  ]
+}

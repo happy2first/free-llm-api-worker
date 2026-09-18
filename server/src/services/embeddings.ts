@@ -1,3 +1,5 @@
+import { runtimePolicy } from '../lib/runtime-policy.js';
+import { logRequest } from '../lib/request-log.js';
 // Embeddings routing. Unlike chat, embeddings can NOT fail over across models:
 // vectors from different models live in incompatible spaces, and silently
 // switching models would corrupt any vector store built on top of us. So the
@@ -121,6 +123,8 @@ export const EMBEDDING_PLATFORMS = new Set([
   'huggingface',
   'cohere',
   'sealion',
+  'siliconflow',
+  'siliconflow-cn',
 ]);
 
 interface ProviderCallResult {
@@ -244,8 +248,8 @@ export function registerCustomEmbeddingModel(db: Db, reg: CustomEmbeddingRegistr
 
   const model = db.prepare(`
     INSERT INTO embedding_models
-      (family, platform, model_id, display_name, dimensions, max_input_tokens, priority, enabled, quota_label, key_id)
-    VALUES (?, 'custom', ?, ?, ?, ?, ?, 1, ?, ?)
+      (family, platform, model_id, display_name, dimensions, max_input_tokens, priority, enabled, quota_label, key_id, source)
+    VALUES (?, 'custom', ?, ?, ?, ?, ?, 1, ?, ?, 'user')
   `).run(reg.family, reg.modelId, reg.displayName ?? reg.modelId, reg.dimensions, reg.maxInputTokens, priority, reg.quotaLabel, bindKeyId);
   return { modelDbId: Number(model.lastInsertRowid), created: true };
 }
@@ -269,6 +273,10 @@ async function callProvider(row: EmbeddingModelRow, credential: ProviderCredenti
       return openAiStyleEmbed('https://models.github.ai/inference/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
     case 'sealion':
       return openAiStyleEmbed('https://api.sea-lion.ai/v1/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
+    case 'siliconflow':
+      return openAiStyleEmbed('https://api.siliconflow.com/v1/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
+    case 'siliconflow-cn':
+      return openAiStyleEmbed('https://api.siliconflow.cn/v1/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
     case 'cloudflare': {
       // Key is stored as "account_id:token".
       const sep = key.indexOf(':');
@@ -327,6 +335,7 @@ function logEmbeddingRequest(
   error: string | null,
 ): void {
   try {
+    if (runtimePolicy.cloudflare) { logRequest(row.platform, row.model_id, keyId, status, inputTokens, 0, latencyMs, error, null, null, null, null, 'embedding'); return; }
     const client = getClientContext();
     getDb().prepare(`
       INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip, client_user_agent, client_agent)

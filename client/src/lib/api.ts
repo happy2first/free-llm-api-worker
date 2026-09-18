@@ -20,6 +20,7 @@ export const UNAUTHORIZED_EVENT = 'freellmapi:unauthorized';
 export interface ApiError extends Error {
   status?: number;
   code?: string;
+  details?: { existing?: unknown; proposed?: unknown };
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -57,6 +58,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     const err = new Error(body.error?.message ?? `HTTP ${res.status}`) as ApiError;
     err.status = res.status;
     err.code = body.error?.type;
+    err.details = { existing: body.existing, proposed: body.proposed };
     throw err;
   }
   if (res.status === 204) return undefined as T;

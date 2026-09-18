@@ -104,8 +104,8 @@ export default function KeysPage() {
           <>
             <UnifiedKeySection />
             <ClientProfilesSection />
-            <ProxySettingsSection />
-            <BackupsSection />
+            {import.meta.env.VITE_RUNTIME !== 'cloudflare' && <ProxySettingsSection />}
+            {import.meta.env.VITE_RUNTIME !== 'cloudflare' && <BackupsSection />}
           </>
         )}
 
