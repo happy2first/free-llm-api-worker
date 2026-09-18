@@ -17,6 +17,7 @@ it('puts edit first, opens filters on demand and keeps sorting independent', asy
     await act(async () => root.render(<CatalogTable records={[row('test',9),row('test-cn',128)]} busy={false} onEdit={() => {}} />))
     expect(container.querySelector('thead th')!.textContent).toContain('操作')
     expect(container.querySelector('tbody td button')!.textContent).toBe('编辑')
+    expect([...container.querySelectorAll('button')].some(b => b.textContent === '清除排序')).toBe(true)
     expect(container.querySelector('[aria-label="筛选Provider"]')).toBeNull()
     const openProvider = container.querySelector('[aria-label="打开Provider筛选"]') as HTMLButtonElement
     await act(async () => openProvider.click())
@@ -42,5 +43,17 @@ it('allows changing the number of rows shown per page', async () => {
     const pageSize = container.querySelector('[aria-label="每页条数"]') as HTMLSelectElement
     await act(async () => { pageSize.value = '50'; pageSize.dispatchEvent(new Event('change', { bubbles: true })) })
     expect(container.querySelectorAll('tbody tr')).toHaveLength(30)
+  } finally { await act(async () => root.unmount()) }
+})
+
+it('clears sorting and restores the incoming record order', async () => {
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    await act(async () => root.render(<CatalogTable records={[row('first',9),row('second',128)]} busy={false} onEdit={() => {}} />))
+    expect(container.querySelector('tbody tr')!.textContent).toContain('model-128')
+    const clearSort = [...container.querySelectorAll('button')].find(b => b.textContent === '清除排序') as HTMLButtonElement
+    await act(async () => clearSort.click())
+    expect(container.querySelector('tbody tr')!.textContent).toContain('model-9')
+    expect(clearSort.disabled).toBe(true)
   } finally { await act(async () => root.unmount()) }
 })

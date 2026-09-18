@@ -25,7 +25,20 @@ class ManagedProvider extends OpenAICompatProvider {
   protected override async fetchWithTimeout(url: string, init: RequestInit, timeoutMs?: number, options?: ProviderFetchOptions): Promise<Response> {
     const check = await assessProviderUrl(url, { blockPrivate: true });
     if (!check.allowed) throw new Error(`Provider URL blocked: ${check.reason}`);
-    return super.fetchWithTimeout(url, { ...init, redirect: 'error' }, timeoutMs, options);
+    // Cloudflare workerd only implements "follow" and "manual". Dynamic
+    // providers must never follow redirects because the redirected target has
+    // not passed the URL guard above. Expose the 3xx and reject it here so the
+    // same transport policy covers key validation, model catalog discovery,
+    // non-streaming chat and streaming chat.
+    const response = await super.fetchWithTimeout(url, { ...init, redirect: 'manual' }, timeoutMs, options);
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location') ?? 'an unspecified location';
+      throw new Error(
+        `Provider URL blocked: upstream redirected (${response.status}) to ${location}; ` +
+        'redirects are not followed for managed providers, point baseUrl directly at the API',
+      );
+    }
+    return response;
   }
 }
 function stored(): Stored[] { return JSON.parse(getSetting(SETTING) ?? '[]'); }

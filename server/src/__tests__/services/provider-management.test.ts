@@ -1,12 +1,14 @@
 import { beforeAll, beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { initDb, getDb, setSetting } from '../../db/index.js';
 import { getProvider, hasProvider } from '../../providers/index.js';
+import { OpenAICompatProvider } from '../../providers/openai-compat.js';
 import { loadManagedProviders, registerManagedProvider, readManagedProvider } from '../../services/provider-management.js';
 import type { Platform } from '@freellmapi/shared/types.js';
 import { assessProviderUrl } from '../../lib/url-guard.js';
 vi.mock('../../lib/url-guard.js', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/url-guard.js')>(), assessProviderUrl: vi.fn().mockResolvedValue({ allowed: true }), assertProviderUrlAllowed: vi.fn() }));
 vi.mock('../../lib/proxy.js', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/proxy.js')>(), proxyFetch: vi.fn((url: string, init: RequestInit) => fetch(url, init)) }));
 const def = { platform: 'test-managed', name: 'Managed test', protocol: 'openai-compatible', baseUrl: 'https://api.example.com/v1' };
+const siliconflow = { platform: 'siliconflow-cn', name: 'SiliconFlow CN', protocol: 'openai-compatible', baseUrl: 'https://api.siliconflow.cn/v1' };
 beforeAll(() => { process.env.ENCRYPTION_KEY = '00'.repeat(32); initDb(':memory:'); });
 beforeEach(() => { getDb().prepare("DELETE FROM api_keys WHERE platform = ?").run(def.platform); setSetting('managed_provider_registry_v1', '[]'); loadManagedProviders(); vi.mocked(assessProviderUrl).mockResolvedValue({ allowed: true }); });
 afterEach(() => vi.unstubAllGlobals());
@@ -38,11 +40,98 @@ it('blocks endpoint changes with credentials and rejects unsupported or unsafe c
   vi.mocked(assessProviderUrl).mockResolvedValue({ allowed: false, reason: 'private endpoint' });
   await expect(registerManagedProvider({ ...def, baseUrl: 'https://127.0.0.1' })).rejects.toMatchObject({ status: 400 });
 });
-it('reuses the adapter and guards every outgoing call with redirects disabled', async () => {
-  await registerManagedProvider(def);
-  const fetch = vi.fn().mockResolvedValue(new Response('{}'));
+it('uses manual redirects and rejects 3xx for every managed-provider transport path', async () => {
+  await registerManagedProvider(siliconflow);
+  const provider = getProvider(siliconflow.platform as Platform) as OpenAICompatProvider;
+  const fetch = vi.fn().mockResolvedValue(new Response(null, {
+    status: 302,
+    headers: { location: 'https://redirect.example/internal' },
+  }));
   vi.stubGlobal('fetch', fetch);
-  await getProvider(def.platform as Platform)!.validateKey('test');
-  expect(assessProviderUrl).toHaveBeenLastCalledWith('https://api.example.com/v1/models', { blockPrivate: true });
-  expect(fetch.mock.calls[0][1].redirect).toBe('error');
+
+  await expect(provider.validateKey('sf-test-key')).rejects.toThrow(/upstream redirected \(302\)/);
+  await expect(provider.fetchModelCatalog('sf-test-key')).rejects.toThrow(/upstream redirected \(302\)/);
+  await expect(provider.chatCompletion('sf-test-key', [{ role: 'user', content: 'ping' }], 'Qwen/Qwen2.5-7B-Instruct')).rejects.toThrow(/upstream redirected \(302\)/);
+  await expect((async () => {
+    for await (const _chunk of provider.streamChatCompletion('sf-test-key', [{ role: 'user', content: 'ping' }], 'Qwen/Qwen2.5-7B-Instruct')) {
+      // The redirect is rejected before any stream body can be consumed.
+    }
+  })()).rejects.toThrow(/upstream redirected \(302\)/);
+
+  expect(assessProviderUrl).toHaveBeenCalled();
+  expect(fetch).toHaveBeenCalledTimes(4);
+  for (const call of fetch.mock.calls) expect(call[1].redirect).toBe('manual');
+});
+
+it('exercises siliconflow-cn valid key, invalid key, model catalog and real chat/stream adapter paths', async () => {
+  await registerManagedProvider(siliconflow);
+  const provider = getProvider(siliconflow.platform as Platform) as OpenAICompatProvider;
+  const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const href = String(url);
+    expect(init?.redirect).toBe('manual');
+    const authorization = new Headers(init?.headers).get('authorization');
+
+    if (authorization === 'Bearer sf-bad-key') {
+      return new Response(JSON.stringify({ error: { message: 'Invalid API key' } }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (href.endsWith('/models')) {
+      return new Response(JSON.stringify({ data: [{ id: 'Qwen/Qwen2.5-7B-Instruct', object: 'model' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (href.endsWith('/chat/completions')) {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.stream) {
+        const sse = [
+          'data: {"id":"chatcmpl-sf-stream","object":"chat.completion.chunk","created":1,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}',
+          '',
+          'data: {"id":"chatcmpl-sf-stream","object":"chat.completion.chunk","created":1,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":"pong"},"finish_reason":"stop"}]}',
+          '',
+          'data: [DONE]',
+          '',
+        ].join('\n');
+        return new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }
+      return new Response(JSON.stringify({
+        id: 'chatcmpl-sf',
+        object: 'chat.completion',
+        created: 1,
+        model: body.model,
+        choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response('not found', { status: 404 });
+  });
+  vi.stubGlobal('fetch', fetch);
+
+  expect(await provider.validateKey('sf-valid-key')).toBe(true);
+  await expect(provider.validateKey('sf-bad-key')).resolves.toMatchObject({ valid: false, error: expect.stringContaining('HTTP 401') });
+
+  const catalog = await provider.fetchModelCatalog('sf-valid-key');
+  expect((await catalog.json()).data[0].id).toBe('Qwen/Qwen2.5-7B-Instruct');
+
+  const completion = await provider.chatCompletion(
+    'sf-valid-key',
+    [{ role: 'user', content: 'Reply only pong' }],
+    'Qwen/Qwen2.5-7B-Instruct',
+    { max_tokens: 4 },
+  );
+  expect(completion.choices[0].message.content).toBe('pong');
+
+  const chunks = [];
+  for await (const chunk of provider.streamChatCompletion(
+    'sf-valid-key',
+    [{ role: 'user', content: 'Reply only pong' }],
+    'Qwen/Qwen2.5-7B-Instruct',
+    { max_tokens: 4 },
+  )) chunks.push(chunk);
+  expect(chunks.map(chunk => chunk.choices?.[0]?.delta?.content ?? '').join('')).toBe('pong');
+
+  expect(fetch.mock.calls.some(call => String(call[0]).endsWith('/models'))).toBe(true);
+  expect(fetch.mock.calls.filter(call => String(call[0]).endsWith('/chat/completions')).length).toBe(2);
 });
