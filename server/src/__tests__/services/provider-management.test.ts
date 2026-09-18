@@ -8,7 +8,7 @@ import { assessProviderUrl } from '../../lib/url-guard.js';
 vi.mock('../../lib/url-guard.js', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/url-guard.js')>(), assessProviderUrl: vi.fn().mockResolvedValue({ allowed: true }), assertProviderUrlAllowed: vi.fn() }));
 vi.mock('../../lib/proxy.js', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/proxy.js')>(), proxyFetch: vi.fn((url: string, init: RequestInit) => fetch(url, init)) }));
 const def = { platform: 'test-managed', name: 'Managed test', protocol: 'openai-compatible', baseUrl: 'https://api.example.com/v1' };
-const siliconflow = { platform: 'siliconflow-cn', name: 'SiliconFlow CN', protocol: 'openai-compatible', baseUrl: 'https://api.siliconflow.cn/v1' };
+const managedSiliconflowTransport = { platform: 'test-managed-sf', name: 'Managed SiliconFlow transport test', protocol: 'openai-compatible', baseUrl: 'https://api.siliconflow.cn/v1' };
 beforeAll(() => { process.env.ENCRYPTION_KEY = '00'.repeat(32); initDb(':memory:'); });
 beforeEach(() => { getDb().prepare("DELETE FROM api_keys WHERE platform = ?").run(def.platform); setSetting('managed_provider_registry_v1', '[]'); loadManagedProviders(); vi.mocked(assessProviderUrl).mockResolvedValue({ allowed: true }); });
 afterEach(() => vi.unstubAllGlobals());
@@ -41,8 +41,8 @@ it('blocks endpoint changes with credentials and rejects unsupported or unsafe c
   await expect(registerManagedProvider({ ...def, baseUrl: 'https://127.0.0.1' })).rejects.toMatchObject({ status: 400 });
 });
 it('uses manual redirects and rejects 3xx for every managed-provider transport path', async () => {
-  await registerManagedProvider(siliconflow);
-  const provider = getProvider(siliconflow.platform as Platform) as OpenAICompatProvider;
+  await registerManagedProvider(managedSiliconflowTransport);
+  const provider = getProvider(managedSiliconflowTransport.platform as Platform) as OpenAICompatProvider;
   const fetch = vi.fn().mockResolvedValue(new Response(null, {
     status: 302,
     headers: { location: 'https://redirect.example/internal' },
@@ -64,11 +64,11 @@ it('uses manual redirects and rejects 3xx for every managed-provider transport p
 });
 
 it('exercises siliconflow-cn valid key, invalid key, model catalog and real chat/stream adapter paths', async () => {
-  await registerManagedProvider(siliconflow);
+  await registerManagedProvider(managedSiliconflowTransport);
   const provider = getProvider(siliconflow.platform as Platform) as OpenAICompatProvider;
   const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const href = String(url);
-    expect(init?.redirect).toBe('manual');
+    expect(href.startsWith('https://api.siliconflow.cn/v1/')).toBe(true);
     const authorization = new Headers(init?.headers).get('authorization');
 
     if (authorization === 'Bearer sf-bad-key') {
@@ -109,7 +109,7 @@ it('exercises siliconflow-cn valid key, invalid key, model catalog and real chat
   });
   vi.stubGlobal('fetch', fetch);
 
-  expect(readManagedProvider('siliconflow-cn')).toMatchObject({ capabilities: ['chat', 'image', 'audio'] });
+  expect(readManagedProvider('siliconflow-cn')).toMatchObject({ platform: 'siliconflow-cn', name: 'SiliconFlow China', readOnly: true });
   expect(await provider.validateKey('sf-valid-key')).toBe(true);
   await expect(provider.validateKey('sf-bad-key')).resolves.toMatchObject({ valid: false, error: expect.stringContaining('HTTP 401') });
 
