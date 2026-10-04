@@ -56,7 +56,7 @@ curl https://YOUR-WORKER.workers.dev/v1/chat/completions \
 
 ## Cloudflare 控制台操作（不删除 Worker）
 
-1. 现有 Worker → 设置 → 构建：生产分支选 `cloudflare/workers-runtime`（本改造合并到 main 后才改回 main）；根目录 `/`；构建命令 `npm run build:cloudflare`；部署命令 `npx wrangler deploy --config wrangler.jsonc`；关闭非生产分支构建，版本命令可保持默认。保存后重新构建所选分支，避免重试旧 main 提交。
+1. 现有 Worker → 设置 → 构建：生产分支始终选 `cloudflare/workers-runtime`（独立维护 Cloudflare 版本；`main` 保留上游桌面／Node 版本，不作为本实例的部署分支）；根目录 `/`；构建命令 `npm run build:cloudflare`；部署命令 `npx wrangler deploy --config wrangler.jsonc`；关闭非生产分支构建，版本命令可保持默认。保存后重新构建所选分支，避免重试旧 main 提交。
 2. 先为实际使用的域名配置下面两条 **Self-hosted / 自托管** Access 应用。不要使用 Worker 的“所有流量”保护，因为它也会挡住 OpenAI API。若已启用 Worker 级保护，需要改用域名应用；账户级全局保护也不能继续挡住此 Worker 的 API。
 3. Zero Trust → Access → Applications → Add an application → Self-hosted。创建 `FreeLLMAPI Admin`，Public hostname 填 Worker 的完整域名（不含 https://），Path 留空。添加 Allow 策略，Include → Emails → 只填管理员自己的邮箱。保存。复制该应用的 Application Audience (AUD)。
 4. 再创建 `FreeLLMAPI API` 自托管应用，同一个域名，Path 填 `v1/*`。策略 Action 选 **Bypass**，Include 选 **Everyone**。这只绕过 Access，Worker 中的应用 Key 校验仍然生效；不要给整个域名或 `/api/*` 配 Bypass。需要访问精确 `/v1` 时，也将该路径作为本 API 应用的独立 hostname/path 条目添加。
@@ -98,7 +98,7 @@ npx wrangler deploy --dry-run
 - 外部 HTTPS Provider 和 Fetch Relay 可使用；不能从 Workers 访问家里或办公网的 localhost/LAN Provider。每 Key 本机代理设置会被拒绝。需要 Fetch Relay 时使用原有配置接口 `/api/settings/proxy`（`proxyMode: "fetch-relay"`），并将其作为承载上游凭证的受信服务管理。
 - 数据恢复使用 Cloudflare 的 Durable Object SQLite 恢复能力，不使用上游本地文件备份按钮。首次接入不自动导入已有桌面数据库；现有生产数据迁移应单独验证。
 - 管理身份由 Access 验证；普通 API 使用 Workers Rate Limiting Binding 和 DO 内存限流（240 次/分钟），不写 SQLite。DO 内存计数会随重建清空；共享出口的应用共享 IP 预算。Provider 自身的额度约束仍独立生效。
-- 未使用真实 Google/Groq/NVIDIA/Cloudflare 凭证执行生产验收。应在部署后各做一笔低额度的真实调用，再开放给实际应用。
+- 自动化测试不使用真实 Google/Groq/NVIDIA/Cloudflare 凭证，不能作为这些 Provider 的生产验收证明。对准备启用的 Provider，应使用实际账户各做一笔低额度的真实调用，并验证流式与额度状态。
 
 Cloudflare 官方参考：[Node HTTP/Express 接入](https://developers.cloudflare.com/workers/runtime-apis/nodejs/http/)、[SQLite Durable Object](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/)、[Workers AI 绑定](https://developers.cloudflare.com/workers-ai/configuration/bindings/)。
 
